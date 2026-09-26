@@ -31,8 +31,7 @@ Medir los conocimientos previos del alumno, detectar vacíos antes de la sesión
 - **Proveedor**: servicio de IA detrás del agente (Anthropic para Claude, OpenAI para ChatGPT, Moonshot para Kimi).
 - **Herramienta (tool)**: función del servidor que el agente puede invocar, por ejemplo registrar una respuesta.
 - **Carpeta de contenido**: conjunto de archivos (PDF, PPTX, DOCX, MD) que el docente sube por clase.
-- **Chunk**: fragmento de texto indexado del contenido, con su referencia (archivo, página o diapositiva).
-- **RAG**: *Retrieval-Augmented Generation*; el modelo responde con fragmentos recuperados como contexto.
+- **Contexto de clase**: texto completo del contenido de la clase, con marcas de archivo y página, que se envía al agente en cada conversación.
 
 ## 2. Requisitos
 
@@ -42,7 +41,7 @@ Medir los conocimientos previos del alumno, detectar vacíos antes de la sesión
 | --- | --- | --- |
 | RF-01 | El docente crea una clase con fecha/hora de inicio y ventana de disponibilidad del examen | Alta |
 | RF-02 | El docente sube una carpeta de contenido por clase (PDF, PPTX, DOCX, MD, TXT) | Alta |
-| RF-03 | El sistema indexa el contenido automáticamente al subirlo | Alta |
+| RF-03 | El sistema extrae el texto del contenido automáticamente al subirlo, conservando archivo y página | Alta |
 | RF-04 | El docente crea preguntas de opción múltiple o pide a la IA un borrador de preguntas a partir del contenido, que luego aprueba | Alta |
 | RF-05 | Cada pregunta guarda la respuesta correcta, una justificación y las referencias al contenido | Alta |
 | RF-06 | El alumno elige el agente (Claude, ChatGPT o Kimi) al iniciar el examen, entre los habilitados por el administrador | Alta |
@@ -66,41 +65,39 @@ Medir los conocimientos previos del alumno, detectar vacíos antes de la sesión
 | RNF-01 | Registro y calificación de respuestas en menos de 1 s, sin depender del LLM |
 | RNF-02 | Primer token del agente en menos de 3 s (streaming SSE) |
 | RNF-03 | Soporte para 500 alumnos concurrentes rindiendo examen |
-| RNF-04 | Indexación de una carpeta de 50 MB en menos de 5 min (asíncrona) |
+| RNF-04 | Extracción de texto de una carpeta de 50 MB en menos de 5 min (asíncrona) |
 | RNF-05 | Disponibilidad 99,5 % en horario académico |
 | RNF-06 | Datos personales tratados según la Ley N.° 29733 de Protección de Datos Personales (Perú); a los proveedores de IA no se envían nombre ni correo del alumno |
 | RNF-07 | Interfaz en español, responsive (móvil y escritorio) |
-| RNF-08 | Límite de consumo IA por alumno por clase (p. ej. 60 mensajes, incluido el examen) para controlar costos |
+| RNF-08 | Límite de consumo IA por alumno por clase (p. ej. 60 mensajes, incluido el examen) y caché de prompt para el contexto de clase, para controlar costos |
 | RNF-09 | Agregar un nuevo proveedor de IA solo requiere una implementación de `ILlmProvider` y configuración, sin tocar el flujo del examen |
 
 ## 3. Arquitectura del sistema
 
-Para la v1 se propone un monolito modular en .NET con un worker separado para la indexación, porque el volumen (cientos de alumnos por clase) no justifica microservicios y simplifica el despliegue.
+Para la v1 se propone un monolito modular en .NET con un worker separado para la extracción de texto, porque el volumen (cientos de alumnos por clase) no justifica microservicios y simplifica el despliegue.
 
 ```mermaid
 flowchart LR
     U[Alumno / Docente] -- HTTPS --> F[Frontend Angular Nx]
-    F -- REST + SSE --> API["API .NET 10<br/>agente · exámenes · RAG"]
-    API -- prompts + tools --> LLM["Claude · GPT · Kimi"]
+    F -- REST + SSE --> API["API .NET 10<br/>agente · exámenes · contenido"]
+    API -- "prompts + tools + contexto de clase" --> LLM["Claude · GPT · Kimi"]
     API -- evento --> Q[Cola RabbitMQ]
     API -- guarda archivos --> B[Blob Storage]
-    API -- datos + búsqueda vectorial --> DB[(PostgreSQL + pgvector)]
-    Q -- IndexarContenido --> W[Worker de indexación]
+    API -- datos + texto del contenido --> DB[(PostgreSQL 16)]
+    Q -- ExtraerTexto --> W[Worker de extracción]
     W -- lee archivos --> B
-    W -- embeddings --> LLM
-    W -- vectores --> DB
+    W -- texto por página --> DB
 ```
 
-La API nunca espera a la indexación: al subir un archivo publica un evento y el worker extrae texto, genera embeddings y guarda los chunks en PostgreSQL.
+La API nunca espera a la extracción: al subir un archivo publica un evento y el worker extrae el texto página por página y lo guarda en PostgreSQL.
 
 ### 3.1 Módulos del backend
 
-- **Clases y contenido**: CRUD de cursos/clases, subida de archivos, estado de indexación.
+- **Clases y contenido**: CRUD de cursos/clases, subida de archivos, estado de extracción y armado del contexto de clase.
 - **Banco de preguntas**: preguntas, alternativas, justificación y referencias; generación de borradores con IA.
 - **Evaluación**: intentos, registro de respuestas, calificación determinista (sin IA) y reglas de ventana/intentos.
 - **Agente tutor**: `AgenteTutorService` orquesta la conversación, expone las herramientas del examen y aplica las reglas de qué puede ver el agente en cada estado.
 - **Gateway LLM**: implementaciones de `ILlmProvider` para Claude, ChatGPT (OpenAI) y Kimi (Moonshot), con reintentos, límites y registro de tokens.
-- **RAG**: recuperación de fragmentos del contenido de la clase, usada por la herramienta `buscar_contenido`.
 - **Reportes**: agregados por clase, pregunta y agente para el docente.
 - **Identidad**: autenticación OIDC y roles (Alumno, Docente, Admin).
 
@@ -110,19 +107,18 @@ La API nunca espera a la indexación: al subir un archivo publica un evento y el
 | --- | --- | --- |
 | Frontend | Angular + Nx, Angular Material | SPA responsive; monorepo para librerías compartidas |
 | Backend | ASP.NET Core (.NET 10), EF Core | LTS, tipado fuerte, streaming SSE nativo |
-| Worker | .NET Worker Service + MassTransit | Procesa la cola de indexación con reintentos |
+| Worker | .NET Worker Service + MassTransit | Procesa la cola de extracción de texto con reintentos |
 | Extracción de texto | PdfPig (PDF), Open XML SDK (DOCX/PPTX) | Librerías .NET sin dependencias externas |
-| Base de datos | PostgreSQL 16 + pgvector | Datos relacionales y vectores en una sola base |
+| Base de datos | PostgreSQL 16 | Datos relacionales y texto del contenido en una sola base |
 | Archivos | Azure Blob Storage o Amazon S3 | Almacenamiento barato del contenido original |
-| Cola | RabbitMQ | Desacopla subida e indexación |
+| Cola | RabbitMQ | Desacopla subida y extracción de texto |
 | LLM | Claude (Anthropic), ChatGPT (OpenAI) y Kimi (Moonshot) vía ILlmProvider | El alumno elige el agente; los tres comparten prompt, herramientas y contenido |
-| Embeddings | Voyage AI u OpenAI embeddings | Anthropic no ofrece modelo de embeddings propio |
 | Autenticación | OIDC (Microsoft Entra ID o Google Workspace de la universidad) | Login institucional, sin contraseñas propias |
 | Despliegue | Docker en Azure Container Apps o AWS ECS | Escalado horizontal de la API en horas pico |
 
 ## 4. Modelo de datos
 
-El modelo gira en torno a la **Clase**: de ella cuelgan el contenido indexado y un único examen pre-clase; cada **Intento** del alumno guarda sus respuestas y la conversación con el agente.
+El modelo gira en torno a la **Clase**: de ella cuelgan el contenido de la clase y un único examen pre-clase; cada **Intento** del alumno guarda sus respuestas y la conversación con el agente.
 
 | Entidad | Campos clave | Relaciones |
 | --- | --- | --- |
@@ -130,22 +126,20 @@ El modelo gira en torno a la **Clase**: de ella cuelgan el contenido indexado y 
 | Curso | id, codigo, nombre, periodo | 1:N Clase |
 | Matricula | usuario_id, curso_id, rol_en_curso | puente Usuario–Curso |
 | Clase | id, curso_id, titulo, inicio, orden | 1:N ArchivoContenido, 1:1 Examen |
-| ArchivoContenido | id, clase_id, nombre, tipo, blob_url, estado (Pendiente, Indexando, Listo, Error), hash | 1:N ChunkContenido |
-| ChunkContenido | id, archivo_id, clase_id, texto, pagina, embedding vector(1024), tokens | usado por RAG |
+| ArchivoContenido | id, clase_id, nombre, tipo, blob_url, estado (Pendiente, Procesando, Listo, Error), hash | 1:N PaginaContenido |
+| PaginaContenido | id, archivo_id, clase_id, pagina, texto, tokens | texto extraído que forma el contexto de clase |
 | AgenteIA | id (claude, openai, kimi), nombre_visible, proveedor, modelo, base_url, habilitado | 1:N Intento |
 | Examen | id, clase_id, abre_en, cierra_en, max_intentos, minutos_limite, modo_feedback (Inmediato, AlFinal), publicado | 1:N Pregunta |
-| Pregunta | id, examen_id, enunciado, justificacion, tema, orden, origen (Manual, IA) | 1:N Alternativa, N:M ChunkContenido (referencias) |
+| Pregunta | id, examen_id, enunciado, justificacion, tema, orden, origen (Manual, IA) | 1:N Alternativa, N:M PaginaContenido (referencias) |
 | Alternativa | id, pregunta_id, letra, texto, es_correcta | — |
 | Intento | id, examen_id, alumno_id, agente_id, modelo, estado (EnCurso, Enviado, EnRevision), inicio, envio, puntaje, porcentaje | 1:N RespuestaIntento, 1:N MensajeChat |
 | RespuestaIntento | id, intento_id, pregunta_id, alternativa_id, es_correcta, texto_original_alumno | — |
 | MensajeChat | id, intento_id, pregunta_id (opcional), agente_id, rol (alumno, agente, herramienta), texto, herramienta, fuentes (jsonb), tokens_entrada, tokens_salida, creado_en | historial del examen y la revisión |
 | DudaSinCobertura | id, clase_id, intento_id, texto, creado_en | alimenta el reporte del docente |
 
-### 4.1 DDL de las tablas clave (PostgreSQL + pgvector)
+### 4.1 DDL de las tablas clave (PostgreSQL)
 
 ```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-
 CREATE TABLE archivo_contenido (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   clase_id    uuid NOT NULL REFERENCES clase(id) ON DELETE CASCADE,
@@ -159,28 +153,26 @@ CREATE TABLE archivo_contenido (
   UNIQUE (clase_id, hash_sha256)
 );
 
-CREATE TABLE chunk_contenido (
+CREATE TABLE pagina_contenido (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   archivo_id uuid NOT NULL REFERENCES archivo_contenido(id) ON DELETE CASCADE,
   clase_id   uuid NOT NULL REFERENCES clase(id) ON DELETE CASCADE,
+  pagina     int NOT NULL,            -- página o número de diapositiva
   texto      text NOT NULL,
-  pagina     int,                     -- página o número de diapositiva
   tokens     int NOT NULL,
-  embedding  vector(1024) NOT NULL
+  UNIQUE (archivo_id, pagina)
 );
 
-CREATE INDEX ix_chunk_clase ON chunk_contenido (clase_id);
-CREATE INDEX ix_chunk_embedding ON chunk_contenido
-  USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX ix_pagina_clase ON pagina_contenido (clase_id);
 
 CREATE TABLE pregunta_referencia (
   pregunta_id uuid REFERENCES pregunta(id) ON DELETE CASCADE,
-  chunk_id    uuid REFERENCES chunk_contenido(id) ON DELETE CASCADE,
-  PRIMARY KEY (pregunta_id, chunk_id)
+  pagina_id   uuid REFERENCES pagina_contenido(id) ON DELETE CASCADE,
+  PRIMARY KEY (pregunta_id, pagina_id)
 );
 ```
 
-La dimensión `vector(1024)` depende del modelo de embeddings elegido; se fija al configurar el proveedor.
+El orden de lectura del contenido de una clase queda determinado por `archivo_contenido.nombre` y `pagina_contenido.pagina`; con eso se arma el contexto de clase de la sección 6.2.
 
 ## 5. Flujos principales con el agente tutor
 
@@ -195,7 +187,7 @@ flowchart LR
     E -- sí --> B
     E -- no --> F["Calificación (0–20)"]
     F --> G[Tutor revisa fallos]
-    G -- pide más --> H[Profundiza con RAG]
+    G -- pide más --> H[Profundiza con el material de la clase]
     H -- vuelve al fallo --> G
     G --> I[Llega a la clase]
 ```
@@ -229,7 +221,7 @@ Al llamar a `finalizar_examen` (o al vencer el tiempo) el servidor calcula la no
 ### 5.4 Revisión como tutor
 
 1. `finalizar_examen` devuelve al agente la nota y, por cada pregunta fallada, la alternativa elegida, la correcta y la justificación del docente.
-2. El agente recorre los fallos uno por uno: por qué la elección es incorrecta, qué concepto faltó (consultando `buscar_contenido`, con citas [archivo, p. N]) y una pregunta corta de comprobación.
+2. El agente recorre los fallos uno por uno: por qué la elección es incorrecta, qué concepto faltó (citando el material de la clase como [archivo, p. N]) y una pregunta corta de comprobación.
 3. Tras cada fallo pregunta si el alumno quiere más detalle; las repreguntas se responden solo con el contenido de la clase.
 4. Si el material no cubre la duda, el agente lo dice y la duda queda registrada para el docente (RF-13).
 5. La web muestra, junto al chat, un panel fijo con la nota y la lista de preguntas falladas para saltar a cualquiera.
@@ -244,7 +236,7 @@ El agente nunca recibe la respuesta correcta antes de que el alumno responda: el
 | registrar_respuesta(pregunta_id, alternativa) | Guarda la respuesta del alumno | Inmediato: correcta o no + justificación; Al final: solo "registrada" |
 | obtener_progreso | Estado del intento | Respondidas, total, tiempo restante |
 | finalizar_examen | Cierra y califica el intento | Nota, correctas, total y detalle de fallos |
-| buscar_contenido(consulta) | Búsqueda RAG en el contenido de la clase | Fragmentos con archivo y página |
+| registrar_duda_sin_cobertura(texto) | Registra una duda que el material de la clase no cubre | Confirmación de registro |
 
 ### 5.6 Capa multi-proveedor
 
@@ -288,63 +280,51 @@ public sealed record Fin(int TokensEntrada, int TokensSalida) : LlmEvento;
 Orquestación en `AgenteTutorService`, por cada mensaje del alumno:
 
 1. Carga el intento, el proveedor elegido y los últimos 20 mensajes desde la base de datos.
-2. Arma la `LlmSolicitud` con el prompt de sistema común (sección 6.3) y solo las herramientas válidas para el estado del intento.
+2. Arma la `LlmSolicitud` con el prompt de sistema común (sección 6.3), el contexto de clase cacheado (sección 6.2) y solo las herramientas válidas para el estado del intento.
 3. Reenvía cada `TextoParcial` al navegador por SSE; ante una `LlamadaHerramienta` la ejecuta en el servidor, agrega el resultado y vuelve a llamar (máximo 6 vueltas por mensaje).
 4. Guarda mensajes, llamadas a herramientas y tokens en `MensajeChat` para auditoría y control de costos.
 
-## 6. Módulo de contenido de clase y RAG
+## 6. Módulo de contenido de clase
 
-Cada clase tiene su propia carpeta de contenido, y toda búsqueda se filtra por `clase_id`, de modo que la IA solo explica con el material de esa sesión.
+Cada clase tiene su propia carpeta de contenido, y el agente recibe únicamente el contenido de esa clase, de modo que la IA solo explica con el material de esa sesión.
 
 ### 6.1 Ingesta de la carpeta
 
 1. El docente arrastra la carpeta (o archivos sueltos) en la pantalla de la clase; la API los guarda en Blob Storage con ruta `cursos/{cursoId}/clases/{claseId}/{archivo}`.
 2. Se calcula el SHA-256; si el archivo ya existe en la clase, se omite.
-3. Se publica el evento `IndexarContenido { archivoId }` en RabbitMQ; el archivo queda en estado *Pendiente*.
+3. Se publica el evento `ExtraerTexto { archivoId }` en RabbitMQ; el archivo queda en estado *Pendiente*.
 4. El worker extrae texto conservando la página o número de diapositiva (PdfPig para PDF, Open XML SDK para DOCX/PPTX, lectura directa para MD/TXT).
-5. Divide el texto en chunks, genera embeddings en lotes y los inserta en `chunk_contenido`.
+5. Guarda una fila por página en `pagina_contenido` con su texto y su conteo de tokens.
 6. El estado pasa a *Listo* (o *Error* con el motivo); la pantalla del docente lo muestra en tiempo real.
-7. Al reemplazar o borrar un archivo, sus chunks se eliminan en cascada y se reindexa.
+7. Al reemplazar o borrar un archivo, sus páginas se eliminan en cascada y el contexto de clase se vuelve a armar.
 
 | Parámetro | Valor inicial | Nota |
 | --- | --- | --- |
-| Tamaño de chunk | 500 tokens | Un chunk nunca cruza dos páginas o diapositivas |
-| Solapamiento | 80 tokens | Evita cortar definiciones a la mitad |
-| Chunks recuperados (top-k) | 6 | Se ajusta con pruebas de calidad |
-| Umbral de similitud coseno | 0,30 | Por debajo se considera "sin contexto" |
 | Tamaño máximo por archivo | 50 MB | PDF escaneados requieren OCR (fuera de v1) |
+| Tokens máximos del contexto de clase | 150 000 | Si se excede, el docente debe recortar o dividir el contenido en más clases |
+| Umbral de aviso al docente | 120 000 tokens | La pantalla de la clase muestra el consumo estimado |
 
-### 6.2 Recuperación
+### 6.2 Contexto de clase
 
-Búsqueda híbrida: similitud vectorial más búsqueda de texto completo en español, combinadas con *Reciprocal Rank Fusion*. La consulta es el enunciado de la pregunta más la alternativa elegida (explicación del error) o el mensaje del alumno (chat).
+El agente recibe el contenido completo de la clase en su contexto. `ContextoClaseService` lo arma una vez por clase y lo cachea:
 
-```sql
-WITH vec AS (
-  SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> @q_embedding) AS r
-  FROM chunk_contenido
-  WHERE clase_id = @clase_id
-  ORDER BY embedding <=> @q_embedding
-  LIMIT 20
-),
-fts AS (
-  SELECT id, ROW_NUMBER() OVER (
-           ORDER BY ts_rank(to_tsvector('spanish', texto),
-                            plainto_tsquery('spanish', @q_texto)) DESC) AS r
-  FROM chunk_contenido
-  WHERE clase_id = @clase_id
-    AND to_tsvector('spanish', texto) @@ plainto_tsquery('spanish', @q_texto)
-  LIMIT 20
-)
-SELECT c.id, c.texto, c.pagina, a.nombre AS archivo,
-       COALESCE(1.0 / (60 + vec.r), 0) + COALESCE(1.0 / (60 + fts.r), 0) AS score
-FROM chunk_contenido c
-JOIN archivo_contenido a ON a.id = c.archivo_id
-LEFT JOIN vec ON vec.id = c.id
-LEFT JOIN fts ON fts.id = c.id
-WHERE vec.id IS NOT NULL OR fts.id IS NOT NULL
-ORDER BY score DESC
-LIMIT 6;
+1. Lee las páginas de la clase ordenadas por nombre de archivo y número de página.
+2. Las concatena dentro de una etiqueta `<contenido>`, cada página precedida por su marca de origen `[archivo, p. N]`, que es la misma cita que el agente debe usar.
+3. Suma los tokens; si superan el máximo, corta y avisa al docente que el material excede el contexto disponible (el examen sigue funcionando con el contenido incluido).
+4. El resultado se guarda en caché con la clave `claseId + hash del contenido`, y se invalida cuando se agrega, reemplaza o borra un archivo.
+5. Se envía como bloque inicial del prompt de sistema y se marca para *prompt caching* del proveedor, de modo que las repreguntas del alumno no vuelven a pagar esos tokens.
+
+```text
+<contenido clase="Clase 03 — Redes profundas">
+[Clase03_RedesProfundas.pdf, p. 11]
+La función sigmoide satura en los extremos, lo que reduce el gradiente…
+
+[Clase03_RedesProfundas.pdf, p. 12]
+ReLU mantiene gradiente 1 para entradas positivas, por lo que evita…
+</contenido>
 ```
+
+La decisión de "esto no está en el material" la toma el modelo leyendo el contenido completo, y la registra con `registrar_duda_sin_cobertura` para el reporte del docente (RF-13).
 
 ### 6.3 Prompt de sistema del agente tutor
 
@@ -366,10 +346,10 @@ Durante la revisión (estado = EnRevision, o tras cada respuesta en modo Inmedia
 - Comunica la nota tal como la devuelve el servidor; nunca la recalcules.
 - Por cada fallo explica: 1) por qué la alternativa elegida es incorrecta, 2) qué concepto
   debía aplicarse, 3) una pregunta corta para comprobar que lo entendió. Máximo 150 palabras.
-- Antes de explicar un concepto, usa buscar_contenido. Basa tu explicación SOLO en los
-  fragmentos devueltos y cita cada afirmación como [archivo, p. N].
-- Si los fragmentos no alcanzan, di: "Esto no está en el material de la clase; pregúntalo
-  en la sesión." y no completes con conocimiento general.
+- Basa tu explicación SOLO en el material que aparece dentro de <contenido> y cita cada
+  afirmación como [archivo, p. N], usando las marcas que ya vienen en ese material.
+- Si el material no cubre la duda, di: "Esto no está en el material de la clase; pregúntalo
+  en la sesión.", llama a registrar_duda_sin_cobertura y no completes con conocimiento general.
 - Al terminar cada fallo, pregunta si quiere más detalle o pasar al siguiente.
 
 Siempre:
@@ -382,9 +362,10 @@ El mismo prompt se envía a Claude, ChatGPT y Kimi; las variables entre llaves l
 ### 6.4 Salvaguardas
 
 - La clave de respuestas nunca está en el contexto del agente mientras el intento está en curso: la seguridad del examen no depende de que el modelo obedezca el prompt.
+- El contexto de clase sí viaja en todos los estados, pero es el mismo material que el alumno ya puede consultar: no contiene la clave de respuestas ni la justificación del docente.
 - `registrar_respuesta` valida en el servidor que la pregunta pertenezca al intento, que no esté ya respondida y que el tiempo no haya vencido.
 - El texto del contenido y del alumno va siempre dentro de etiquetas delimitadas y se trata como dato, no como instrucción.
-- Si ningún chunk supera el umbral, `buscar_contenido` devuelve "sin contexto" y la duda se registra en `DudaSinCobertura`.
+- Cuando el agente declara que el material no cubre una duda, `registrar_duda_sin_cobertura` la guarda en `DudaSinCobertura`; el servidor valida que la duda pertenezca al intento en curso.
 - Temperatura 0,2 en los tres proveedores; en la revisión se valida que la respuesta incluya al menos una cita antes de mostrarla.
 - A los proveedores solo se envía un identificador seudónimo del alumno, nunca nombre ni correo.
 
@@ -396,8 +377,8 @@ API versionada bajo `/api/v1`, autenticada con JWT (OIDC); las respuestas de IA 
 | --- | --- | --- | --- |
 | POST | /cursos/{cursoId}/clases | Docente | Crea una clase |
 | POST | /clases/{claseId}/contenido | Docente | Sube uno o varios archivos (multipart) |
-| GET | /clases/{claseId}/contenido | Docente | Lista archivos y estado de indexación |
-| DELETE | /contenido/{archivoId} | Docente | Elimina un archivo y sus chunks |
+| GET | /clases/{claseId}/contenido | Docente | Lista archivos, estado de extracción y tokens del contexto de clase |
+| DELETE | /contenido/{archivoId} | Docente | Elimina un archivo y su texto extraído |
 | PUT | /clases/{claseId}/examen | Docente | Crea o actualiza configuración del examen (incluye modo_feedback) |
 | POST | /examenes/{examenId}/preguntas | Docente | Agrega una pregunta con alternativas |
 | POST | /examenes/{examenId}/preguntas/generar | Docente | Genera borradores de preguntas desde el contenido |
@@ -458,7 +439,7 @@ event: fin
 data: {"agenteId": "kimi", "tokensEntrada": 1830, "tokensSalida": 212}
 ```
 
-Los eventos `pregunta` y `progreso` los emite el servidor (no el modelo), para que la web dibuje los botones A–D y la barra de avance de forma confiable con cualquier agente.
+Los eventos `pregunta` y `progreso` los emite el servidor (no el modelo), para que la web dibuje los botones A–D y la barra de avance de forma confiable con cualquier agente. El evento `fuentes` lo arma el servidor leyendo las citas `[archivo, p. N]` del texto del agente y resolviéndolas contra `pagina_contenido`: si una cita no corresponde a ninguna página de la clase, no se emite y la respuesta se marca como sin cita válida (sección 6.4).
 
 ## 8. Diseño de UI
 
@@ -470,7 +451,7 @@ Son seis pantallas; la central es **Examen con el tutor**, un chat donde el agen
 | Elegir agente | Alumno | Tarjetas de Claude, ChatGPT y Kimi (logo, una línea de descripción), recordando el último elegido; reglas del examen y botón "Comenzar" |
 | Examen con el tutor | Alumno | Chat en streaming con el agente; bajo cada pregunta, botones A–D como atajo; barra de progreso y temporizador fijos arriba; indicador del agente activo |
 | Revisión | Alumno | Mismo chat en modo tutor, con panel lateral: nota 0–20, % y lista de preguntas (verde/rojo) para saltar a un fallo; chips de fuente que abren el archivo en la página citada; opción de cambiar de agente |
-| Gestión de clase | Docente | Subida de carpeta con estado de indexación, editor de preguntas, "Generar preguntas con IA", modo de feedback, publicación |
+| Gestión de clase | Docente | Subida de carpeta con estado de extracción y tokens del contexto de clase, editor de preguntas, "Generar preguntas con IA", modo de feedback, publicación |
 | Reporte de clase | Docente | Promedio, histograma de notas, preguntas más falladas con la alternativa más elegida, dudas sin cobertura y uso por agente |
 
 ### 8.1 Componentes Angular (librerías Nx)
@@ -502,11 +483,11 @@ Principios: accesibilidad WCAG 2.1 AA, colores con icono además de color (acier
 | Tipo | Alcance | Herramientas |
 | --- | --- | --- |
 | Unitarias | Calificación, reglas de ventana e intentos, herramientas del agente, armado de prompts | xUnit, Jest |
-| Integración | API + PostgreSQL/pgvector + RabbitMQ reales; proveedores LLM simulados | Testcontainers, WebApplicationFactory, WireMock |
+| Integración | API + PostgreSQL + RabbitMQ reales; proveedores LLM simulados | Testcontainers, WebApplicationFactory, WireMock |
 | Contrato | Eventos SSE que consume Angular; formato de tools de cada proveedor | Pact o snapshots JSON |
 | Paridad de agentes | Mismo guion de examen con Claude, ChatGPT y Kimi: registra bien las respuestas, no filtra la respuesta, termina el examen | Conversaciones guionadas + verificación de llamadas a herramientas |
 | Resistencia a trampas | 30 intentos de obtener la respuesta ("ignora tus reglas", "dame una pista") por agente | Suite adversarial propia |
-| Calidad del tutor | 50 fallos de referencia por curso: citas correctas, fidelidad al contenido, "sin contexto" cuando corresponde | Conjunto de evaluación + LLM como juez con revisión humana |
+| Calidad del tutor | 50 fallos de referencia por curso: citas correctas, fidelidad al contenido de la clase, "sin contexto" cuando corresponde | Conjunto de evaluación + LLM como juez con revisión humana |
 | E2E | Elegir agente, rendir examen por chat, revisar fallos | Playwright |
 | Carga | 500 alumnos conversando en el mismo minuto | k6 |
 
@@ -514,12 +495,13 @@ Principios: accesibilidad WCAG 2.1 AA, colores con icono además de color (acier
 
 | Riesgo | Impacto | Mitigación |
 | --- | --- | --- |
-| El agente inventa información fuera del material | Alto | Solo contexto recuperado, umbral de similitud, validación de citas, evaluación del tutor |
+| El agente inventa información fuera del material | Alto | Solo el contenido de la clase en el contexto, validación de citas, evaluación del tutor |
 | El alumno logra que el agente le dé la respuesta | Alto | La clave no está en el contexto durante el examen; pruebas adversariales por agente |
 | Calidad desigual entre Claude, ChatGPT y Kimi | Medio | Suite de paridad antes de habilitar un modelo; el admin puede deshabilitar un agente |
 | Diferencias de function calling entre proveedores | Medio | Adaptador por proveedor en `ILlmProvider`; eventos de UI emitidos por el servidor |
 | Caída o latencia de un proveedor | Medio | Reintento, cambio de agente sin perder avance (RF-17) |
-| Costos de LLM altos (el examen ahora usa IA) | Medio | Tope de mensajes, historial acotado, modelos más ligeros para el examen y más capaces para la revisión |
+| Costos de LLM altos (el examen ahora usa IA) | Medio | Tope de mensajes, historial acotado, caché de prompt del contexto de clase, modelos más ligeros para el examen y más capaces para la revisión |
+| Contenido de clase que excede la ventana de contexto | Medio | Aviso al docente con los tokens estimados y recomendación de dividir el material en más clases |
 | PDF escaneados sin texto | Medio | Detectar y avisar al docente; OCR en fase 3 |
 | Pico de mensajes al cierre del examen | Medio | Registro y calificación sin IA; autoescalado de la API |
 
@@ -527,7 +509,7 @@ Principios: accesibilidad WCAG 2.1 AA, colores con icono además de color (acier
 
 | Fase | Duración estimada | Entregable |
 | --- | --- | --- |
-| 1. MVP | 7 semanas | Clases, subida e indexación, preguntas manuales, agente tutor con un proveedor (Claude), examen por chat, calificación y revisión de fallos |
+| 1. MVP | 7 semanas | Clases, subida y extracción de texto, preguntas manuales, agente tutor con un proveedor (Claude), examen por chat, calificación y revisión de fallos |
 | 2. Multi-agente | 4 semanas | ChatGPT y Kimi vía `ILlmProvider`, selector de agente, suite de paridad, cambio de agente, reporte del docente |
 | 3. Automatización | 4 semanas | Generación de preguntas con IA, OCR, banco aleatorio, integración con LMS (LTI 1.3) |
 
