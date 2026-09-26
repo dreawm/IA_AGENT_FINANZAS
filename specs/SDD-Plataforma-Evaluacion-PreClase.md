@@ -12,22 +12,22 @@ Medir los conocimientos previos del alumno, detectar vacíos antes de la sesión
 
 ### 1.2 Alcance
 
-- Incluye: gestión de cursos y clases, carga de la carpeta de contenido, banco de preguntas, examen pre-clase, calificación automática, retroalimentación por pregunta, agente tutor conversacional con elección de proveedor (Claude, ChatGPT o Kimi), explicación adicional con RAG y reportes para el docente.
+- Incluye: gestión de cursos y clases, carga de la carpeta de contenido, banco de preguntas, examen pre-clase, calificación automática, retroalimentación por pregunta, agente tutor conversacional con elección de proveedor (Claude, ChatGPT o Kimi) y reportes para el docente.
 - Excluye (v1): videoconferencia, pagos, integración con LMS externos (Moodle/Blackboard) y preguntas de respuesta abierta calificadas por IA.
 
 ### 1.3 Actores
 
 | Actor | Responsabilidad principal |
 | --- | --- |
-| Docente | Crea clases, sube la carpeta de contenido, define o aprueba preguntas, revisa resultados |
-| Alumno | Rinde el examen, ve su puntaje, revisa errores y pide explicaciones |
+| Docente | Crea clases, sube la carpeta de contenido, revisa resultados obtenidos por los alumnos posterior al examen |
+| Alumno | Rinde el examen, ve su puntaje, revisa errores y pide explicaciones | 
 | Administrador | Gestiona usuarios, cursos y configuración del proveedor de IA |
-| Agente tutor (Claude, ChatGPT o Kimi) | Conduce el examen por chat, comunica la nota y explica los errores usando solo el contenido de la clase |
+| Agente tutor (Claude, ChatGPT o Kimi) | Conduce el examen por chat, comunica la nota y explica los errores usando solo el contenido de la clase. Además responsable de categorizar al alumno por nivel de conocomiento a partir de los examenes. Adicional define las preguntas acorde al nivel del alumno |
 
 ### 1.4 Glosario
 
-- **Examen pre-clase**: evaluación de opción múltiple asociada a una clase, disponible antes de su fecha de inicio y rendida conversando con el agente.
-- **Agente tutor**: asistente de IA que conduce el examen y la revisión; el alumno elige el modelo que lo impulsa.
+- **Examen pre-clase**: evaluación de opción múltiple para definir el nivel del alumnno asociada a una clase, disponible antes de su fecha de inicio y rendida conversando con el agente.
+- **Agente tutor**: asistente de IA que conduce el examen y la revisión.
 - **Proveedor**: servicio de IA detrás del agente (Anthropic para Claude, OpenAI para ChatGPT, Moonshot para Kimi).
 - **Herramienta (tool)**: función del servidor que el agente puede invocar, por ejemplo registrar una respuesta.
 - **Carpeta de contenido**: conjunto de archivos (PDF, PPTX, DOCX, MD) que el docente sube por clase.
