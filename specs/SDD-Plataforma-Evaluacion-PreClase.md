@@ -42,11 +42,11 @@ Medir los conocimientos previos del alumno, detectar vacíos antes de la sesión
 | RF-01 | El docente crea una clase con fecha/hora de inicio y ventana de disponibilidad del examen | Alta |
 | RF-02 | El docente sube una carpeta de contenido por clase (PDF, PPTX, DOCX, MD, TXT) | Alta |
 | RF-03 | El sistema extrae el texto del contenido automáticamente al subirlo, conservando archivo y página | Alta |
-| RF-04 | El docente crea preguntas de opción múltiple o pide a la IA un borrador de preguntas a partir del contenido, que luego aprueba | Alta |
+| RF-04 | El docente aprueba las preguntas generadas por la IA a partir del contenido | Alta |
 | RF-05 | Cada pregunta guarda la respuesta correcta, una justificación y las referencias al contenido | Alta |
 | RF-06 | El alumno elige el agente (Claude, ChatGPT o Kimi) al iniciar el examen, entre los habilitados por el administrador | Alta |
 | RF-07 | El agente conduce el examen por chat: presenta cada pregunta, interpreta la respuesta en lenguaje natural y la registra mediante una herramienta del servidor | Alta |
-| RF-08 | El examen solo se rinde dentro de la ventana, con un número configurable de intentos (por defecto 1) | Alta |
+| RF-08 | El examen solo se rinde dentro de la ventana, con un número configurable de intentos por el docente (por defecto 3) | Alta |
 | RF-09 | El servidor calcula el puntaje (0–20, escala peruana) y el porcentaje; el agente solo lo comunica | Alta |
 | RF-10 | El agente explica cada pregunta fallada como tutor: por qué falló, el concepto correcto y una pregunta de comprobación | Alta |
 | RF-11 | El alumno puede repreguntar al agente sobre cualquier fallo; las respuestas se basan solo en el contenido de la clase y citan archivo y página | Alta |
@@ -64,13 +64,12 @@ Medir los conocimientos previos del alumno, detectar vacíos antes de la sesión
 | --- | --- |
 | RNF-01 | Registro y calificación de respuestas en menos de 1 s, sin depender del LLM |
 | RNF-02 | Primer token del agente en menos de 3 s (streaming SSE) |
-| RNF-03 | Soporte para 500 alumnos concurrentes rindiendo examen |
+| RNF-03 | Soporte para 30 alumnos concurrentes rindiendo examen |
 | RNF-04 | Extracción de texto de una carpeta de 50 MB en menos de 5 min (asíncrona) |
 | RNF-05 | Disponibilidad 99,5 % en horario académico |
 | RNF-06 | Datos personales tratados según la Ley N.° 29733 de Protección de Datos Personales (Perú); a los proveedores de IA no se envían nombre ni correo del alumno |
 | RNF-07 | Interfaz en español, responsive (móvil y escritorio) |
 | RNF-08 | Límite de consumo IA por alumno por clase (p. ej. 60 mensajes, incluido el examen) y caché de prompt para el contexto de clase, para controlar costos |
-| RNF-09 | Agregar un nuevo proveedor de IA solo requiere una implementación de `ILlmProvider` y configuración, sin tocar el flujo del examen |
 
 ## 3. Arquitectura del sistema
 
@@ -489,7 +488,7 @@ Principios: accesibilidad WCAG 2.1 AA, colores con icono además de color (acier
 | Resistencia a trampas | 30 intentos de obtener la respuesta ("ignora tus reglas", "dame una pista") por agente | Suite adversarial propia |
 | Calidad del tutor | 50 fallos de referencia por curso: citas correctas, fidelidad al contenido de la clase, "sin contexto" cuando corresponde | Conjunto de evaluación + LLM como juez con revisión humana |
 | E2E | Elegir agente, rendir examen por chat, revisar fallos | Playwright |
-| Carga | 500 alumnos conversando en el mismo minuto | k6 |
+| Carga | 30 alumnos conversando en el mismo minuto | k6 |
 
 ### 9.3 Riesgos
 
