@@ -1,0 +1,221 @@
+using Microsoft.EntityFrameworkCore;
+using TutorPreClase.Application.Abstracciones;
+using TutorPreClase.Application.Nivel;
+using TutorPreClase.Domain.Entidades;
+using TutorPreClase.Domain.Reglas;
+
+namespace TutorPreClase.Application.Evaluacion;
+
+public interface IServicioExamen
+{
+    Task<Intento> IniciarIntentoAsync(Guid claseId, Guid alumnoId, string agenteId, string modelo, CancellationToken ct = default);
+    Task<PreguntaDto?> SiguientePreguntaAsync(Guid intentoId, CancellationToken ct = default);
+    Task<RegistroRespuestaDto> RegistrarRespuestaAsync(Guid intentoId, Guid preguntaId, string letra, string textoOriginal, CancellationToken ct = default);
+    Task<ProgresoDto> ProgresoAsync(Guid intentoId, CancellationToken ct = default);
+    Task<ResultadoDto> FinalizarAsync(Guid intentoId, CancellationToken ct = default);
+    Task<ResultadoDto> ResultadoAsync(Guid intentoId, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Motor del examen: registro y calificación deterministas, sin IA (RNF-01). El agente
+/// solo comunica lo que este servicio decide.
+/// </summary>
+public sealed class ServicioExamen(IAppDbContext db, IRelojSistema reloj, INivelService nivel) : IServicioExamen
+{
+    public async Task<Intento> IniciarIntentoAsync(
+        Guid claseId, Guid alumnoId, string agenteId, string modelo, CancellationToken ct = default)
+    {
+        var examen = await CargarExamenPorClaseAsync(claseId, ct)
+            ?? throw new ExamenException("sin_examen", "La clase no tiene examen publicado.");
+
+        var previos = await db.Intentos
+            .Where(i => i.ExamenId == examen.Id && i.AlumnoId == alumnoId)
+            .ToListAsync(ct);
+
+        var validacion = ReglasExamen.PuedeIniciar(examen, previos, reloj.Ahora);
+        if (!validacion.Permitido)
+            throw new ExamenException(validacion.Motivo.ToString(), MensajeDe(validacion.Motivo));
+
+        var intento = new Intento
+        {
+            ExamenId = examen.Id,
+            AlumnoId = alumnoId,
+            AgenteId = agenteId,
+            Modelo = modelo,
+            Estado = EstadoIntento.EnCurso,
+            Inicio = reloj.Ahora
+        };
+
+        db.Intentos.Add(intento);
+        await db.SaveChangesAsync(ct);
+        return intento;
+    }
+
+    public async Task<PreguntaDto?> SiguientePreguntaAsync(Guid intentoId, CancellationToken ct = default)
+    {
+        var (examen, intento) = await CargarAsync(intentoId, ct);
+
+        var respondidas = intento.Respuestas.Select(r => r.PreguntaId).ToHashSet();
+        var aprobadas = PreguntasVigentes(examen);
+
+        var siguiente = aprobadas.FirstOrDefault(p => !respondidas.Contains(p.Id));
+        if (siguiente is null) return null;
+
+        return new PreguntaDto(
+            siguiente.Id,
+            siguiente.Enunciado,
+            aprobadas.IndexOf(siguiente) + 1,
+            aprobadas.Count,
+            siguiente.Alternativas
+                .OrderBy(a => a.Letra, StringComparer.Ordinal)
+                .Select(a => new AlternativaDto(a.Id, a.Letra, a.Texto))
+                .ToList());
+    }
+
+    public async Task<RegistroRespuestaDto> RegistrarRespuestaAsync(
+        Guid intentoId, Guid preguntaId, string letra, string textoOriginal, CancellationToken ct = default)
+    {
+        var (examen, intento) = await CargarAsync(intentoId, ct);
+
+        var validacion = ReglasExamen.PuedeRegistrarRespuesta(examen, intento, preguntaId, reloj.Ahora);
+        if (!validacion.Permitido)
+            throw new ExamenException(validacion.Motivo.ToString(), MensajeDe(validacion.Motivo));
+
+        var pregunta = examen.Preguntas.First(p => p.Id == preguntaId);
+
+        var alternativa = pregunta.Alternativas
+            .FirstOrDefault(a => string.Equals(a.Letra, letra.Trim(), StringComparison.OrdinalIgnoreCase))
+            ?? throw new ExamenException("alternativa_invalida", "La pregunta no tiene esa alternativa.");
+
+        var respuesta = new RespuestaIntento
+        {
+            IntentoId = intento.Id,
+            PreguntaId = preguntaId,
+            AlternativaId = alternativa.Id,
+            EsCorrecta = alternativa.EsCorrecta,
+            TextoOriginalAlumno = textoOriginal,
+            CreadoEn = reloj.Ahora
+        };
+
+        // Solo al DbSet: EF hace el fixup y la agrega a intento.Respuestas. Agregarla
+        // tambien a mano la duplicaria en memoria y falsearia el conteo de correctas.
+        db.Respuestas.Add(respuesta);
+        await db.SaveChangesAsync(ct);
+
+        var quedan = PreguntasVigentes(examen).Count > intento.Respuestas.Count;
+
+        // En modo AlFinal el agente no recibe la corrección: solo "registrada" (RF-15).
+        return examen.ModoFeedback == ModoFeedback.Inmediato
+            ? new RegistroRespuestaDto(true, alternativa.EsCorrecta, pregunta.Justificacion, quedan)
+            : new RegistroRespuestaDto(true, null, null, quedan);
+    }
+
+    public async Task<ProgresoDto> ProgresoAsync(Guid intentoId, CancellationToken ct = default)
+    {
+        var (examen, intento) = await CargarAsync(intentoId, ct);
+
+        return new ProgresoDto(
+            intento.Respuestas.Count,
+            PreguntasVigentes(examen).Count,
+            ReglasExamen.SegundosRestantes(examen, intento, reloj.Ahora));
+    }
+
+    public async Task<ResultadoDto> FinalizarAsync(Guid intentoId, CancellationToken ct = default)
+    {
+        var (examen, intento) = await CargarAsync(intentoId, ct);
+
+        if (intento.Estado == EstadoIntento.EnCurso)
+        {
+            var total = PreguntasVigentes(examen).Count;
+            var correctas = intento.Respuestas.Count(r => r.EsCorrecta);
+
+            intento.Puntaje = Calificacion.Nota(correctas, total);
+            intento.Porcentaje = Calificacion.Porcentaje(correctas, total);
+            intento.Estado = EstadoIntento.EnRevision;
+            intento.Envio = reloj.Ahora;
+
+            await db.SaveChangesAsync(ct);
+            await nivel.RecalcularAsync(intento.AlumnoId, examen.ClaseId, ct);
+        }
+
+        return Armar(examen, intento);
+    }
+
+    public async Task<ResultadoDto> ResultadoAsync(Guid intentoId, CancellationToken ct = default)
+    {
+        var (examen, intento) = await CargarAsync(intentoId, ct);
+
+        if (intento.Estado == EstadoIntento.EnCurso)
+            throw new ExamenException("intento_en_curso", "El intento todavia no ha sido enviado.");
+
+        return Armar(examen, intento);
+    }
+
+    /// <summary>Solo entran al examen las preguntas aprobadas por el docente (RF-04).</summary>
+    private static List<Pregunta> PreguntasVigentes(Examen examen) =>
+        examen.Preguntas.Where(p => p.Aprobada).OrderBy(p => p.Orden).ToList();
+
+    private static ResultadoDto Armar(Examen examen, Intento intento)
+    {
+        var total = PreguntasVigentes(examen).Count;
+        var correctas = intento.Respuestas.Count(r => r.EsCorrecta);
+
+        var fallos = intento.Respuestas
+            .Where(r => !r.EsCorrecta)
+            .Select(r =>
+            {
+                var pregunta = examen.Preguntas.First(p => p.Id == r.PreguntaId);
+                var elegida = pregunta.Alternativas.First(a => a.Id == r.AlternativaId);
+                var correcta = pregunta.Alternativas.First(a => a.EsCorrecta);
+
+                return new FalloDto(
+                    pregunta.Id,
+                    pregunta.Enunciado,
+                    elegida.Letra + ". " + elegida.Texto,
+                    correcta.Letra + ". " + correcta.Texto,
+                    pregunta.Justificacion,
+                    pregunta.Tema);
+            })
+            .ToList();
+
+        return new ResultadoDto(
+            intento.Id,
+            intento.Puntaje ?? 0m,
+            intento.Porcentaje ?? 0,
+            correctas,
+            total,
+            fallos);
+    }
+
+    private async Task<(Examen Examen, Intento Intento)> CargarAsync(Guid intentoId, CancellationToken ct)
+    {
+        var intento = await db.Intentos
+            .Include(i => i.Respuestas)
+            .FirstOrDefaultAsync(i => i.Id == intentoId, ct)
+            ?? throw new ExamenException("intento_no_encontrado", "No existe el intento.");
+
+        var examen = await db.Examenes
+            .Include(e => e.Preguntas).ThenInclude(p => p.Alternativas)
+            .FirstAsync(e => e.Id == intento.ExamenId, ct);
+
+        return (examen, intento);
+    }
+
+    private Task<Examen?> CargarExamenPorClaseAsync(Guid claseId, CancellationToken ct) =>
+        db.Examenes
+            .Include(e => e.Preguntas).ThenInclude(p => p.Alternativas)
+            .FirstOrDefaultAsync(e => e.ClaseId == claseId, ct);
+
+    private static string MensajeDe(MotivoRechazo motivo) => motivo switch
+    {
+        MotivoRechazo.NoPublicado => "El examen todavia no esta publicado.",
+        MotivoRechazo.FueraDeVentana => "El examen no esta disponible en este momento.",
+        MotivoRechazo.SinIntentosDisponibles => "Ya usaste todos tus intentos.",
+        MotivoRechazo.IntentoEnCurso => "Ya tienes un intento en curso.",
+        MotivoRechazo.TiempoVencido => "Se acabo el tiempo del examen.",
+        MotivoRechazo.PreguntaAjenaAlIntento => "Esa pregunta no pertenece a este examen.",
+        MotivoRechazo.PreguntaYaRespondida => "Esa pregunta ya fue respondida.",
+        MotivoRechazo.IntentoNoEnCurso => "El intento ya fue enviado.",
+        _ => "Operacion no permitida."
+    };
+}

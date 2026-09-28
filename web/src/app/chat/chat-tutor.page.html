@@ -1,0 +1,175 @@
+@if (!usuarioId()) {
+  <section class="identificacion">
+    <h1>Tutor pre-clase</h1>
+    <p>Pega tu identificador de alumno para entrar (en producción esto lo da el login institucional).</p>
+    <form (submit)="$event.preventDefault(); identificarse(entrada.value)">
+      <input #entrada type="text" placeholder="UUID del alumno" aria-label="Identificador de alumno" />
+      <button type="submit">Entrar</button>
+    </form>
+  </section>
+} @else {
+  <div class="disposicion">
+    <aside class="clases">
+      <h2>Mis clases</h2>
+      @for (clase of clases(); track clase.claseId) {
+        <button
+          class="clase"
+          [class.activa]="clase.claseId === claseActiva()?.claseId"
+          (click)="abrir(clase)">
+          <span class="titulo">{{ clase.titulo }}</span>
+          <span class="fecha">{{ clase.inicio | date: 'short' }}</span>
+          @if (clase.examen?.publicado) {
+            <span class="etiqueta">Examen disponible</span>
+          }
+        </button>
+      } @empty {
+        <p class="vacio">No estás matriculada en ninguna clase todavía.</p>
+      }
+    </aside>
+
+    <main class="chat">
+      <header>
+        <div>
+          <h1>{{ claseActiva()?.titulo ?? 'Selecciona una clase' }}</h1>
+          <p class="modo" [class.examen]="enExamen()">{{ etiquetaModo() }}</p>
+        </div>
+
+        <div class="controles">
+          <label>
+            Agente
+            <select
+              [value]="agenteActivo()"
+              [disabled]="enExamen()"
+              (change)="cambiarAgente($any($event.target).value)">
+              @for (agente of agentesConectados(); track agente.id) {
+                <option [value]="agente.id">{{ agente.nombre }}</option>
+              }
+            </select>
+          </label>
+
+          @if (progreso(); as p) {
+            <span class="progreso">
+              {{ p.respondidas }} / {{ p.total }}
+              @if (p.segundosRestantes !== null) {
+                · {{ p.segundosRestantes }} s
+              }
+            </span>
+          }
+
+          <button class="enlace" (click)="alternarPanelCredenciales()">Mi agente</button>
+
+          @if (!enExamen() && claseActiva()?.examen?.publicado && !sinAgente()) {
+            <button class="comenzar" (click)="comenzarExamen()">Comenzar examen</button>
+          }
+        </div>
+      </header>
+
+      @if (error()) {
+        <p class="error" role="alert">{{ error() }}</p>
+      }
+
+      @if (panelCredenciales()) {
+        <section class="credenciales">
+          <h2>Conecta tu agente</h2>
+          <p class="ayuda">
+            El tutor conversa con tu propia cuenta de IA y el consumo corre por ella. Tu credencial
+            se guarda cifrada, solo se usa en tus conversaciones y nunca se vuelve a mostrar.
+          </p>
+
+          @if (errorCredencial()) {
+            <p class="error" role="alert">{{ errorCredencial() }}</p>
+          }
+
+          @for (agente of agentes(); track agente.id) {
+            <article class="proveedor">
+              <header>
+                <strong>{{ agente.nombre }}</strong>
+                @if (credencialDe(agente.id); as credencial) {
+                  <span class="estado" [class.invalida]="credencial.estado === 'Invalida'">
+                    ····{{ credencial.ultimos4 }}
+                    @if (credencial.estado === 'Invalida') { · rechazada }
+                  </span>
+                }
+              </header>
+
+              @if (agente.consola) {
+                <p class="ayuda">
+                  Genera tu clave en
+                  <a [href]="agente.consola" target="_blank" rel="noopener">{{ agente.consola }}</a>
+                </p>
+              }
+
+              <form (submit)="$event.preventDefault(); conectar(agente.id, clave.value, clave)">
+                <input
+                  #clave
+                  type="password"
+                  autocomplete="off"
+                  spellcheck="false"
+                  [attr.aria-label]="'Credencial de ' + agente.nombre"
+                  [placeholder]="credencialDe(agente.id) ? 'Reemplazar credencial' : 'Pega tu credencial'" />
+                <button type="submit" [disabled]="conectando()">
+                  {{ credencialDe(agente.id) ? 'Reemplazar' : 'Conectar' }}
+                </button>
+                @if (credencialDe(agente.id)) {
+                  <button type="button" class="quitar" (click)="desconectar(agente.id)">Desconectar</button>
+                }
+              </form>
+            </article>
+          }
+        </section>
+      }
+
+      <ol class="mensajes">
+        @for (mensaje of mensajes(); track $index) {
+          <li [class]="mensaje.rol === 'Alumno' ? 'alumno' : 'agente'">
+            <p class="texto">{{ mensaje.texto }}@if (mensaje.enCurso) {<span class="cursor">▌</span>}</p>
+
+            @if (mensaje.ampliacion) {
+              <aside class="ampliacion">
+                <strong>Fuera del material</strong>
+                <p>{{ mensaje.ampliacion }}</p>
+              </aside>
+            }
+
+            @if (mensaje.fuentes?.length) {
+              <p class="fuentes">
+                @for (fuente of mensaje.fuentes; track $index) {
+                  <span class="fuente" [class.invalida]="!fuente.valida">
+                    {{ fuente.archivo }}, p. {{ fuente.pagina }}
+                  </span>
+                }
+              </p>
+            }
+
+            @if (mensaje.aviso) {
+              <p class="aviso">{{ mensaje.aviso }}</p>
+            }
+          </li>
+        } @empty {
+          <li class="agente">
+            <p class="texto">
+              @if (sinAgente()) {
+                Conecta tu agente ahí arriba y podremos empezar.
+              } @else {
+                Pregúntame lo que quieras sobre esta clase, o empieza el examen cuando estés lista.
+              }
+            </p>
+          </li>
+        }
+      </ol>
+
+      <form class="redaccion" (submit)="$event.preventDefault(); enviarBorrador()">
+        <input
+          type="text"
+          [value]="borrador()"
+          (input)="borrador.set($any($event.target).value)"
+          [disabled]="enviando() || !conversacionId() || sinAgente()"
+          placeholder="Escribe tu respuesta o tu pregunta…"
+          aria-label="Mensaje para el tutor" />
+        <button type="submit" [disabled]="enviando() || !borrador().trim()">Enviar</button>
+      </form>
+
+      <p class="pie">Generado con IA a partir del material de clase.</p>
+    </main>
+  </div>
+}

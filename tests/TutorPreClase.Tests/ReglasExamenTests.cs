@@ -1,0 +1,89 @@
+using TutorPreClase.Domain.Entidades;
+using TutorPreClase.Domain.Reglas;
+
+namespace TutorPreClase.Tests;
+
+public class ReglasExamenTests
+{
+    private static readonly DateTimeOffset Ahora = new(2026, 9, 28, 10, 0, 0, TimeSpan.Zero);
+
+    private static Examen ExamenAbierto(int maxIntentos = 3, int? minutos = null) => new()
+    {
+        Publicado = true,
+        AbreEn = Ahora.AddHours(-1),
+        CierraEn = Ahora.AddHours(1),
+        MaxIntentos = maxIntentos,
+        MinutosLimite = minutos
+    };
+
+    [Fact]
+    public void Permite_iniciar_dentro_de_la_ventana()
+        => Assert.True(ReglasExamen.PuedeIniciar(ExamenAbierto(), [], Ahora).Permitido);
+
+    [Fact]
+    public void Rechaza_examen_no_publicado()
+    {
+        var examen = ExamenAbierto();
+        examen.Publicado = false;
+
+        Assert.Equal(MotivoRechazo.NoPublicado, ReglasExamen.PuedeIniciar(examen, [], Ahora).Motivo);
+    }
+
+    [Fact]
+    public void Rechaza_fuera_de_la_ventana()
+        => Assert.Equal(MotivoRechazo.FueraDeVentana,
+            ReglasExamen.PuedeIniciar(ExamenAbierto(), [], Ahora.AddHours(5)).Motivo);
+
+    [Fact]
+    public void Rechaza_cuando_se_agotaron_los_intentos()
+    {
+        Intento[] previos = [
+            new() { Estado = EstadoIntento.Enviado },
+            new() { Estado = EstadoIntento.Enviado },
+            new() { Estado = EstadoIntento.EnRevision }
+        ];
+
+        Assert.Equal(MotivoRechazo.SinIntentosDisponibles,
+            ReglasExamen.PuedeIniciar(ExamenAbierto(maxIntentos: 3), previos, Ahora).Motivo);
+    }
+
+    [Fact]
+    public void Rechaza_si_ya_hay_un_intento_en_curso()
+        => Assert.Equal(MotivoRechazo.IntentoEnCurso,
+            ReglasExamen.PuedeIniciar(ExamenAbierto(), [new Intento { Estado = EstadoIntento.EnCurso }], Ahora).Motivo);
+
+    [Fact]
+    public void Registrar_respuesta_valida_pertenencia_duplicado_y_tiempo()
+    {
+        var pregunta = new Pregunta { Enunciado = "¿?" };
+        var examen = ExamenAbierto(minutos: 10);
+        examen.Preguntas.Add(pregunta);
+        var intento = new Intento { Estado = EstadoIntento.EnCurso, Inicio = Ahora };
+
+        Assert.True(ReglasExamen.PuedeRegistrarRespuesta(examen, intento, pregunta.Id, Ahora).Permitido);
+
+        Assert.Equal(MotivoRechazo.PreguntaAjenaAlIntento,
+            ReglasExamen.PuedeRegistrarRespuesta(examen, intento, Guid.NewGuid(), Ahora).Motivo);
+
+        intento.Respuestas.Add(new RespuestaIntento { PreguntaId = pregunta.Id });
+        Assert.Equal(MotivoRechazo.PreguntaYaRespondida,
+            ReglasExamen.PuedeRegistrarRespuesta(examen, intento, pregunta.Id, Ahora).Motivo);
+
+        intento.Respuestas.Clear();
+        Assert.Equal(MotivoRechazo.TiempoVencido,
+            ReglasExamen.PuedeRegistrarRespuesta(examen, intento, pregunta.Id, Ahora.AddMinutes(11)).Motivo);
+    }
+
+    [Fact]
+    public void Segundos_restantes_se_recortan_al_cierre_del_examen()
+    {
+        var examen = ExamenAbierto(minutos: 180);   // el límite cae después del cierre
+        var intento = new Intento { Inicio = Ahora };
+
+        Assert.Equal(3600, ReglasExamen.SegundosRestantes(examen, intento, Ahora));
+    }
+
+    [Fact]
+    public void Sin_temporizador_no_hay_segundos_restantes()
+        => Assert.Null(ReglasExamen.SegundosRestantes(ExamenAbierto(), new Intento { Inicio = Ahora }, Ahora));
+}

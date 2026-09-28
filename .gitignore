@@ -1,0 +1,42 @@
+# --- .NET ---
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+.vs/
+TestResults/
+*.trx
+*.coverage
+coverage*.xml
+coverage*.json
+
+# Bases de datos locales (SQLite de desarrollo)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Claves de Data Protection: cifran las credenciales de los alumnos, nunca al repo
+keys/
+DataProtection-Keys/
+
+# Almacen local del contenido que sube el docente
+almacen/
+src/TutorPreClase.Api/almacen/
+
+# Secretos de usuario por si se materializan en el arbol
+appsettings.*.local.json
+*.secrets.json
+
+# --- Node / Angular ---
+node_modules/
+web/dist/
+web/.angular/
+web/tmp/
+npm-debug.log*
+
+# --- Logs y temporales ---
+*.log
+*.tmp

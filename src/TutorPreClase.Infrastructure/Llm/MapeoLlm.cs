@@ -1,0 +1,119 @@
+using System.Net;
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using TutorPreClase.Application.Llm;
+
+namespace TutorPreClase.Infrastructure.Llm;
+
+/// <summary>Utilidades compartidas por los adaptadores de proveedor.</summary>
+internal static class MapeoLlm
+{
+    public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public static JsonElement ObjetoVacio { get; } = JsonDocument.Parse("{}").RootElement.Clone();
+
+    /// <summary>Lee un flujo SSE y devuelve el contenido de cada linea `data:`.</summary>
+    public static async IAsyncEnumerable<string> LeerSseAsync(
+        Stream flujo, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        using var lector = new StreamReader(flujo);
+
+        // Se lee hasta que ReadLineAsync devuelva null: EndOfStream bloquearia el hilo
+        // con una lectura sincrona sobre la conexion del proveedor.
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var linea = await lector.ReadLineAsync(ct);
+            if (linea is null) break;
+            if (!linea.StartsWith("data:", StringComparison.Ordinal)) continue;
+
+            var dato = linea[5..].Trim();
+            if (dato.Length == 0 || dato == "[DONE]") continue;
+
+            yield return dato;
+        }
+    }
+
+    public static JsonElement Argumentos(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return ObjetoVacio;
+
+        try
+        {
+            return JsonDocument.Parse(json).RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return ObjetoVacio;
+        }
+    }
+
+    public static string Texto(JsonElement raiz, params string[] ruta)
+    {
+        var actual = raiz;
+        foreach (var paso in ruta)
+        {
+            if (actual.ValueKind != JsonValueKind.Object || !actual.TryGetProperty(paso, out actual))
+                return "";
+        }
+
+        return actual.ValueKind == JsonValueKind.String ? actual.GetString() ?? "" : "";
+    }
+
+    public static int Entero(JsonElement raiz, params string[] ruta)
+    {
+        var actual = raiz;
+        foreach (var paso in ruta)
+        {
+            if (actual.ValueKind != JsonValueKind.Object || !actual.TryGetProperty(paso, out actual))
+                return 0;
+        }
+
+        return actual.ValueKind == JsonValueKind.Number && actual.TryGetInt32(out var valor) ? valor : 0;
+    }
+
+    /// <summary>Un 429 o un 5xx se reintenta; un 4xx de la peticion, no (RF-17).</summary>
+    public static bool EsReintentable(HttpStatusCode codigo) =>
+        codigo == HttpStatusCode.TooManyRequests || (int)codigo >= 500;
+
+    public readonly record struct Envio(HttpResponseMessage? Respuesta, ErrorProveedor? Error);
+
+    /// <summary>
+    /// El envio va aparte porque C# no admite `yield return` dentro de un `catch`.
+    /// </summary>
+    public static async Task<Envio> EnviarAsync(
+        HttpClient http, HttpRequestMessage peticion, string proveedor, ILogger log, CancellationToken ct)
+    {
+        try
+        {
+            var respuesta = await http.SendAsync(peticion, HttpCompletionOption.ResponseHeadersRead, ct);
+            return new Envio(respuesta, null);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            log.LogWarning(ex, "{Proveedor} no respondio", proveedor);
+            return new Envio(null, new ErrorProveedor("No se pudo contactar al proveedor.", Reintentable: true));
+        }
+    }
+
+    public static async Task<ErrorProveedor?> RevisarEstadoAsync(
+        HttpResponseMessage respuesta, string proveedor, ILogger log, CancellationToken ct)
+    {
+        if (respuesta.IsSuccessStatusCode) return null;
+
+        var detalle = await respuesta.Content.ReadAsStringAsync(ct);
+        log.LogWarning("{Proveedor} devolvio {Codigo}: {Detalle}", proveedor, (int)respuesta.StatusCode, detalle);
+
+        var credencialRechazada =
+            respuesta.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
+
+        return new ErrorProveedor(
+            $"El proveedor respondio {(int)respuesta.StatusCode}.",
+            EsReintentable(respuesta.StatusCode),
+            credencialRechazada);
+    }
+}
