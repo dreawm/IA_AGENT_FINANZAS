@@ -58,8 +58,8 @@ public sealed class ApiDePruebas : WebApplicationFactory<Program>
         db.Database.EnsureCreated();
 
         var docente = new Usuario { Email = "docente@uni.edu", Nombre = "Docente", Rol = RolUsuario.Docente };
-        var alumno = new Usuario { Email = "alumna@uni.edu", Nombre = "Alumna", Rol = RolUsuario.Alumno };
-        var curso = new Curso { Codigo = "IA101", Nombre = "Redes Neuronales", Periodo = "2026-2" };
+        var alumno = new Usuario { Email = "alumna@uni.edu", Nombre = "Alumna", Rol = RolUsuario.Alumno, ProfesorId = docente.Id };
+        var curso = new Curso { Codigo = "IA101", Nombre = "Redes Neuronales", Periodo = "2026-2", DocenteId = docente.Id };
 
         var clase = new Clase
         {
@@ -73,6 +73,7 @@ public sealed class ApiDePruebas : WebApplicationFactory<Program>
         db.Cursos.Add(curso);
         db.Clases.Add(clase);
         db.Matriculas.Add(new Matricula { UsuarioId = alumno.Id, CursoId = curso.Id, RolEnCurso = RolUsuario.Alumno });
+        db.Matriculas.Add(new Matricula { UsuarioId = docente.Id, CursoId = curso.Id, RolEnCurso = RolUsuario.Docente });
         db.Agentes.Add(new AgenteIA
         {
             Id = "openrouter",

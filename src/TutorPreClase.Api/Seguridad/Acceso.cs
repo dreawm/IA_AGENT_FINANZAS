@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using TutorPreClase.Application.Abstracciones;
+using TutorPreClase.Application.Academico;
 using TutorPreClase.Domain.Entidades;
 
 namespace TutorPreClase.Api.Seguridad;
@@ -28,14 +29,8 @@ public sealed class OpcionesAcceso
     public string[] Administradores { get; set; } = [];
 
     /// <summary>
-    /// Correos del profesor: entran como docente, ven todos los cursos y gestionan los
-    /// usuarios (en esta etapa el profesor hace de administrador).
-    /// </summary>
-    public string[] Docentes { get; set; } = [];
-
-    /// <summary>
-    /// Con registro abierto, cualquiera que inicie sesión entra como alumno de todos los
-    /// cursos, sin que nadie lo dé de alta. Cerrado, solo entran los registrados (RF-33).
+    /// Con registro abierto, quien entra por primera vez elige si es alumno o profesor, sin
+    /// que nadie lo apruebe. Cerrado, solo entran los registrados (RF-33).
     /// </summary>
     public bool RegistroAbierto { get; set; } = true;
 
@@ -43,6 +38,61 @@ public sealed class OpcionesAcceso
     public string ClaveSesion { get; set; } = "";
 
     public int HorasSesion { get; set; } = 12;
+
+    /// <summary>
+    /// Carpeta con las credenciales OAuth descargadas (fuera del repo): la API las lee sin que
+    /// nadie tenga que copiarlas a la configuración. Ver <see cref="CredencialesEnCarpeta"/>.
+    /// </summary>
+    public string CarpetaSecretos { get; set; } = "";
+}
+
+/// <summary>
+/// Completa el ClientId y el secreto de cada proveedor que no los tenga configurados, a
+/// partir de los archivos de la carpeta de secretos:
+/// <list type="bullet">
+/// <item>Google: el JSON que descarga la consola (<c>client_secret_*.json</c>, sección <c>web</c>).</item>
+/// <item>Microsoft: <c>microsoft.json</c> con <c>client_id</c> y <c>client_secret</c>.</item>
+/// </list>
+/// Nunca se registran los valores, solo si se encontraron.
+/// </summary>
+public static class CredencialesEnCarpeta
+{
+    public static void Completar(OpcionesAcceso opciones)
+    {
+        var carpeta = opciones.CarpetaSecretos;
+        if (string.IsNullOrWhiteSpace(carpeta) || !Directory.Exists(carpeta)) return;
+
+        if (opciones.Proveedores.TryGetValue("google", out var google) && string.IsNullOrWhiteSpace(google.ClientId))
+        {
+            var archivo = Directory.GetFiles(carpeta, "client_secret_*.json").OrderBy(f => f).FirstOrDefault();
+            if (archivo is not null) Leer(google, archivo, "web");
+        }
+
+        if (opciones.Proveedores.TryGetValue("microsoft", out var microsoft) && string.IsNullOrWhiteSpace(microsoft.ClientId))
+        {
+            var archivo = Path.Combine(carpeta, "microsoft.json");
+            if (File.Exists(archivo)) Leer(microsoft, archivo, null);
+        }
+    }
+
+    private static void Leer(OpcionesProveedorIdentidad proveedor, string archivo, string? seccion)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(archivo));
+            var raiz = seccion is not null && doc.RootElement.TryGetProperty(seccion, out var s) ? s : doc.RootElement;
+
+            if (raiz.TryGetProperty("client_id", out var id) && raiz.TryGetProperty("client_secret", out var secreto))
+            {
+                proveedor.ClientId = id.GetString() ?? "";
+                proveedor.ClientSecret = secreto.GetString() ?? "";
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            // Un archivo ilegible deja el proveedor sin configurar: su botón lo dirá.
+        }
+    }
 }
 
 public sealed class OpcionesProveedorIdentidad
@@ -64,9 +114,19 @@ public sealed class AccesoException(string codigo, string mensaje, int estado = 
     public int Estado { get; } = estado;
 }
 
-public sealed record UsuarioSesion(Guid Id, string Nombre, string Email, string Rol);
+/// <summary>
+/// <c>Rol</c> es con el que actúa en esta sesión; <c>Vistas</c>, los que puede usar. Un
+/// profesor puede entrar también como alumno para estudiar o ver lo que ven sus alumnos.
+/// </summary>
+public sealed record UsuarioSesion(Guid Id, string Nombre, string Email, string Rol, IReadOnlyList<string> Vistas);
 
 public sealed record Sesion(string Token, UsuarioSesion Usuario);
+
+/// <summary>Primer acceso: la identidad ya está validada y falta que la persona elija su rol.</summary>
+public sealed record RegistroPendiente(string Token, string Email, string Nombre, string? Perfil = null);
+
+/// <summary>El canje da una sesión (usuario conocido) o un registro pendiente (primera vez).</summary>
+public sealed record ResultadoAcceso(Sesion? Sesion, RegistroPendiente? Registro);
 
 /// <summary>
 /// Firma y valida las sesiones propias de la API. El proveedor (Microsoft o Google) solo
@@ -81,8 +141,17 @@ public sealed class ServicioSesion(IOptions<OpcionesAcceso> opciones, IHostEnvir
 
     public SymmetricSecurityKey ClaveFirma => _clave;
 
-    public Sesion Emitir(Usuario usuario)
+    /// <summary>Los roles con los que puede actuar: el profesor, también como alumno.</summary>
+    public static IReadOnlyList<string> VistasDe(Usuario usuario) =>
+        usuario.Rol == RolUsuario.Docente
+            ? [nameof(RolUsuario.Docente), nameof(RolUsuario.Alumno)]
+            : [usuario.Rol.ToString()];
+
+    public Sesion Emitir(Usuario usuario, string? comoRol = null)
     {
+        var vistas = VistasDe(usuario);
+        var rol = comoRol is not null && vistas.Contains(comoRol) ? comoRol : usuario.Rol.ToString();
+
         var token = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = Emisor,
@@ -92,13 +161,13 @@ public sealed class ServicioSesion(IOptions<OpcionesAcceso> opciones, IHostEnvir
             Subject = new ClaimsIdentity(
             [
                 new Claim(JwtRegisteredClaimNames.Sub, usuario.Id.ToString()),
-                new Claim("role", usuario.Rol.ToString()),
+                new Claim("role", rol),
                 new Claim(JwtRegisteredClaimNames.Name, usuario.Nombre),
                 new Claim(JwtRegisteredClaimNames.Email, usuario.Email)
             ])
         });
 
-        return new Sesion(token, new UsuarioSesion(usuario.Id, usuario.Nombre, usuario.Email, usuario.Rol.ToString()));
+        return new Sesion(token, new UsuarioSesion(usuario.Id, usuario.Nombre, usuario.Email, rol, vistas));
     }
 
     private static SymmetricSecurityKey Clave(string configurada, IHostEnvironment entorno)
@@ -130,13 +199,20 @@ public sealed class ConexionIdentidad(
 {
     private static readonly TimeSpan Vigencia = TimeSpan.FromMinutes(10);
 
-    public IEnumerable<(string Id, string Nombre)> Disponibles() =>
+    /// <summary>Todos los proveedores, con si ya tienen ClientId: la web muestra un botón por cada uno.</summary>
+    public IEnumerable<(string Id, string Nombre, bool Configurado)> Disponibles() =>
         opciones.Value.Proveedores
-            .Where(p => !string.IsNullOrWhiteSpace(p.Value.ClientId))
-            .Select(p => (p.Key, p.Value.Nombre));
+            .Select(p => (p.Key, p.Value.Nombre, !string.IsNullOrWhiteSpace(p.Value.ClientId)));
 
-    public string Iniciar(string proveedor)
+    /// <summary>
+    /// <paramref name="perfil"/> es lo que la persona eligió antes de ir al proveedor
+    /// ("Alumno" o "Docente"); viaja en el servidor ligado al <c>state</c>, no en la URL.
+    /// </summary>
+    public string Iniciar(string proveedor, string? perfil = null)
     {
+        if (perfil is not null and not (nameof(RolUsuario.Alumno) or nameof(RolUsuario.Docente)))
+            throw new AccesoException("rol_invalido", "Elige si entras como alumno o como profesor.");
+
         var config = Proveedor(proveedor);
 
         var estado = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(24));
@@ -144,7 +220,7 @@ public sealed class ConexionIdentidad(
         var nonce = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(16));
         var desafio = Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(verificador)));
 
-        cache.Set(ClaveCache(estado), new Pendiente(proveedor, verificador, nonce), Vigencia);
+        cache.Set(ClaveCache(estado), new Pendiente(proveedor, verificador, nonce, perfil), Vigencia);
 
         return config.UrlAutorizacion +
                $"?client_id={Uri.EscapeDataString(config.ClientId)}" +
@@ -156,7 +232,7 @@ public sealed class ConexionIdentidad(
                "&prompt=select_account";
     }
 
-    public async Task<Sesion> CanjearAsync(string proveedor, string codigo, string estado, CancellationToken ct)
+    public async Task<ResultadoAcceso> CanjearAsync(string proveedor, string codigo, string estado, CancellationToken ct)
     {
         var config = Proveedor(proveedor);
 
@@ -170,64 +246,100 @@ public sealed class ConexionIdentidad(
         var idToken = await PedirTokenAsync(proveedor, config, codigo, pendiente.Verificador, ct);
         var (email, nombre) = Validar(config, idToken, pendiente.Nonce);
 
-        return sesiones.Emitir(await UsuarioAsync(email, nombre, ct));
-    }
-
-    /// <summary>
-    /// Los correos de <c>Acceso:Docentes</c> entran como docente y los de
-    /// <c>Acceso:Administradores</c> como administrador. Con registro abierto, el resto entra
-    /// como alumno; cerrado, solo quien esta registrado (RF-33).
-    /// </summary>
-    private async Task<Usuario> UsuarioAsync(string email, string nombre, CancellationToken ct)
-    {
-        var o = opciones.Value;
-        var esDocente = Figura(o.Docentes, email);
-        var esAdmin = Figura(o.Administradores, email);
-
+        var perfil = pendiente.Perfil;
         var usuario = await db.Usuarios.FirstOrDefaultAsync(u => u.Email == email, ct);
 
-        if (usuario is null)
+        if (usuario is not null)
         {
-            if (!esDocente && !esAdmin && !o.RegistroAbierto)
-                throw new AccesoException("no_registrado",
-                    $"La cuenta {email} no está registrada en la plataforma. Pide al administrador que te dé de alta.",
-                    StatusCodes.Status403Forbidden);
+            // El profesor cuya carpeta ya existía quedó registrado con su correo como nombre.
+            if (usuario.Nombre == usuario.Email && nombre.Length > 0) usuario.Nombre = nombre;
 
-            usuario = new Usuario
-            {
-                Email = email,
-                Nombre = nombre.Length > 0 ? nombre : email,
-                Rol = esAdmin ? RolUsuario.Admin : esDocente ? RolUsuario.Docente : RolUsuario.Alumno
-            };
-            db.Usuarios.Add(usuario);
-            log.LogInformation("{Email} registrado en su primer acceso como {Rol}", email, usuario.Rol);
-        }
-        else if (esDocente && usuario.Rol == RolUsuario.Alumno)
-        {
-            // Si el profesor entró antes de figurar en la configuración, quedó como alumno.
-            usuario.Rol = RolUsuario.Docente;
+            // Quien entra como profesor lo es desde ahora (y puede seguir entrando como alumno).
+            if (perfil == nameof(RolUsuario.Docente) && usuario.Rol == RolUsuario.Alumno)
+                usuario.Rol = RolUsuario.Docente;
+
+            await db.SaveChangesAsync(ct);
+            return new ResultadoAcceso(sesiones.Emitir(usuario, perfil), null);
         }
 
-        // El profesor y, con registro abierto, los alumnos ven todos los cursos, incluidos
-        // los que aparecieron en la carpeta después de su último acceso.
-        if (esDocente || (o.RegistroAbierto && usuario.Rol == RolUsuario.Alumno))
-            await MatricularEnTodosAsync(usuario, ct);
+        var o = opciones.Value;
+        if (o.Administradores.Any(a => string.Equals(a.Trim(), email, StringComparison.OrdinalIgnoreCase)))
+            return new ResultadoAcceso(sesiones.Emitir(await CrearAsync(email, nombre, RolUsuario.Admin, null, ct)), null);
+
+        if (!o.RegistroAbierto)
+            throw new AccesoException("no_registrado",
+                $"La cuenta {email} no está registrada en la plataforma. Pide al administrador que te dé de alta.",
+                StatusCodes.Status403Forbidden);
+
+        // Primera vez como profesor: no hay nada más que elegir.
+        if (perfil == nameof(RolUsuario.Docente))
+            return new ResultadoAcceso(sesiones.Emitir(await CrearAsync(email, nombre, RolUsuario.Docente, null, ct)), null);
+
+        // Primera vez como alumno (o sin perfil): falta elegir profesor (o el rol).
+        var token = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(24));
+        var registro = new RegistroPendiente(token, email, nombre.Length > 0 ? nombre : email, perfil);
+        cache.Set(ClaveRegistro(token), registro, Vigencia);
+
+        return new ResultadoAcceso(null, registro);
+    }
+
+    public bool RegistroVigente(string? token) =>
+        !string.IsNullOrEmpty(token) && cache.TryGetValue(ClaveRegistro(token), out RegistroPendiente? _);
+
+    /// <summary>
+    /// Completa el primer acceso con el rol que eligió la persona (RF-33). El alumno elige
+    /// además a su profesor y queda solo en los cursos de ese profesor.
+    /// </summary>
+    public async Task<Sesion> RegistrarAsync(string token, string rol, Guid? profesorId, CancellationToken ct)
+    {
+        if (!cache.TryGetValue(ClaveRegistro(token), out RegistroPendiente? registro) || registro is null)
+            throw new AccesoException("acceso_vencido", "El registro venció. Vuelve a entrar.");
+
+        var eleccion = rol switch
+        {
+            "Alumno" => RolUsuario.Alumno,
+            "Docente" => RolUsuario.Docente,
+            _ => throw new AccesoException("rol_invalido", "Elige si entras como alumno o como profesor.")
+        };
+
+        if (eleccion == RolUsuario.Alumno)
+            await ValidarProfesorAsync(profesorId, ct);
+
+        cache.Remove(ClaveRegistro(token));
+
+        // Si entró dos veces a la vez, la segunda encuentra al usuario ya creado.
+        var usuario = await db.Usuarios.FirstOrDefaultAsync(u => u.Email == registro.Email, ct)
+                      ?? await CrearAsync(registro.Email, registro.Nombre, eleccion,
+                          eleccion == RolUsuario.Alumno ? profesorId : null, ct);
+
+        return sesiones.Emitir(usuario);
+    }
+
+    public async Task ValidarProfesorAsync(Guid? profesorId, CancellationToken ct)
+    {
+        if (profesorId is not Guid id || !await db.Usuarios.AnyAsync(u => u.Id == id && u.Rol == RolUsuario.Docente, ct))
+            throw new AccesoException("profesor_invalido", "Elige a tu profesor de la lista.");
+    }
+
+    private async Task<Usuario> CrearAsync(string email, string nombre, RolUsuario rol, Guid? profesorId, CancellationToken ct)
+    {
+        var usuario = new Usuario
+        {
+            Email = email,
+            Nombre = nombre.Length > 0 ? nombre : email,
+            Rol = rol,
+            ProfesorId = profesorId
+        };
+        db.Usuarios.Add(usuario);
+
+        if (rol == RolUsuario.Alumno) await MatriculasPorProfesor.AlinearAlumnoAsync(db, usuario, ct);
 
         await db.SaveChangesAsync(ct);
+        log.LogInformation("{Email} se registró como {Rol}", email, rol);
         return usuario;
     }
 
-    private async Task MatricularEnTodosAsync(Usuario usuario, CancellationToken ct)
-    {
-        var tiene = await db.Matriculas.Where(m => m.UsuarioId == usuario.Id).Select(m => m.CursoId).ToListAsync(ct);
-        var faltan = await db.Cursos.Where(c => !tiene.Contains(c.Id)).Select(c => c.Id).ToListAsync(ct);
-
-        foreach (var cursoId in faltan)
-            db.Matriculas.Add(new Matricula { Usuario = usuario, CursoId = cursoId });
-    }
-
-    private static bool Figura(IEnumerable<string> correos, string email) =>
-        correos.Any(c => string.Equals(c.Trim(), email, StringComparison.OrdinalIgnoreCase));
+    private static string ClaveRegistro(string token) => $"registro:{token}";
 
     private async Task<string> PedirTokenAsync(
         string proveedor, OpcionesProveedorIdentidad config, string codigo, string verificador, CancellationToken ct)
@@ -299,5 +411,5 @@ public sealed class ConexionIdentidad(
 
     private static string ClaveCache(string estado) => $"acceso:{estado}";
 
-    private sealed record Pendiente(string Proveedor, string Verificador, string Nonce);
+    private sealed record Pendiente(string Proveedor, string Verificador, string Nonce, string? Perfil);
 }

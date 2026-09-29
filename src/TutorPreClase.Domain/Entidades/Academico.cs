@@ -8,6 +8,9 @@ public class Usuario
     public RolUsuario Rol { get; set; }
     public string? AgentePreferido { get; set; }
 
+    /// <summary>Solo alumnos: el profesor que eligió; ve únicamente los cursos de ese profesor.</summary>
+    public Guid? ProfesorId { get; set; }
+
     public List<Matricula> Matriculas { get; set; } = [];
 }
 
@@ -17,6 +20,9 @@ public class Curso
     public string Codigo { get; set; } = "";
     public string Nombre { get; set; } = "";
     public string Periodo { get; set; } = "";
+
+    /// <summary>Profesor dueño del curso: el de la carpeta <c>course-content/{correo}/</c>.</summary>
+    public Guid? DocenteId { get; set; }
 
     public List<Clase> Clases { get; set; } = [];
     public List<Matricula> Matriculas { get; set; } = [];

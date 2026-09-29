@@ -34,7 +34,7 @@ los bloques C, D y E y dilo al reportar.
 
 | Requisito | Cómo verificarlo |
 | --- | --- |
-| RF-01 | Cada subcarpeta de `course-content/MFEP - Finanzas empresariales/` es una clase (`GET /alumno/clases`: M1…M7, 19:00 de Lima, una por semana); `PUT /api/v1/clases/$CLA/examen` fija ventana e intentos |
+| RF-01 | Cada subcarpeta de `course-content/alonso.uchida@gmail.com/MFEP - Finanzas empresariales/` es una clase del curso de ese profesor (`GET /alumno/clases`: M1…M7, 19:00 de Lima, una por semana); `PUT /api/v1/clases/$CLA/examen` fija ventana e intentos |
 | RF-02 | Copia un `.md` a la carpeta de M2 → en ≤ 30 s aparece en `GET /clases/<M2>/contenido`; bórralo → desaparece. El `.xlsx` de M4 figura con 3 páginas (una por hoja) |
 | RF-03 | Todos los archivos en `"estado":"Listo"` con `paginas` ≥ 1; M1 con `contextoClase.tokens` ≈ 9 500 |
 | RF-04 | Cada clase de la carpeta tiene su examen publicado sin preguntas (las genera la IA); `POST /examenes/$EX/preguntas` ya no existe |
@@ -42,7 +42,7 @@ los bloques C, D y E y dilo al reportar.
 | RF-18 | `PUT .../examen` con `"minutosLimite":10`; luego el chat emite `segundosRestantes` en `progreso` |
 
 ```bash
-M2="course-content/MFEP - Finanzas empresariales/M2 - Indicadores de gestión"
+M2="course-content/alonso.uchida@gmail.com/MFEP - Finanzas empresariales/M2 - Indicadores de gestión"
 printf 'Prueba de sincronizacion.\n' > "$M2/prueba-sincronizacion.md"   # bórralo al terminar
 
 curl -s -H "X-Usuario-Id: $DOC" -H "X-Usuario-Rol: Docente" \
@@ -70,17 +70,22 @@ prueba de pantalla por `curl` en silencio; si decide seguir sin navegador, marca
 
 Con la conexión lista: `tabs_create_mcp` y navega a `http://localhost:4200`.
 
-**Entrada y roles.** Aquí no inicias sesión en Microsoft, Google ni OpenRouter: eso lo hace la
-persona. Tú entras con los usuarios de prueba (solo existen en desarrollo).
+**Entrada y roles.** La web solo ofrece OAuth. Tú no inicias sesión en Google, Microsoft ni
+OpenRouter: la extensión no puede actuar en `accounts.google.com` y además lo hace la persona
+(elige su cuenta y vuelve). Para las pantallas por rol sin OAuth, en desarrollo pide una sesión
+con `POST /api/v1/acceso/desarrollo {"usuarioId":…}` y guárdala en la pestaña con
+`sessionStorage.setItem('tutor.sesion', JSON.stringify(sesion))` antes de recargar.
 
 | Requisito | Cómo verificarlo |
 | --- | --- |
-| RF-31 | Sale la página de entrada (franja roja UPC). Sin `ClientId` configurado, `GET /acceso/proveedores` devuelve `[]` y la página dice que Microsoft y Google aún no están configurados; con él, salen *Entrar con Microsoft* / *Entrar con Google* y llevan al proveedor con `code_challenge_method=S256` |
-| RF-31 | *Administración Demo* → gestión de usuarios; *Docente Demo* → panel del docente; *Alumna Demo* → chat. **Salir** vuelve a la entrada y borra la sesión |
-| RF-31 | `POST /acceso/microsoft/canje` con `code` y `state` inventados → error (proveedor sin configurar o `state` vencido) y ninguna sesión emitida |
-| RF-33 | Como docente: el botón **Usuarios** abre la gestión de usuarios y *Volver a mis clases* regresa. Da de alta `prueba.funcional@uni.edu` como Alumno en MFEP → aparece en la tabla y entra directo al chat con ese curso |
-| RF-33 | Registro abierto (lo cubren las pruebas .NET; en pantalla, solo con Google configurado): una cuenta nueva entra como alumno de todos los cursos; el correo de `Acceso:Docentes` entra como docente |
-| RF-33 | Un Alumno contra `GET /admin/usuarios` → **403**; un Docente → 200 |
+| RF-31 | La entrada (franja roja UPC) pide primero *Soy alumno* / *Soy profesor*; luego *Entras como … Cambiar* y los botones *Continuar con Google* / *Continuar con Microsoft (Outlook)*. `GET /acceso/proveedores` dice cuál está `configurado`; el que no, avisa al pulsarlo |
+| RF-31 | *Continuar con Google* lleva a `accounts.google.com` con `code_challenge_method=S256` y `redirect_uri=http://localhost:4200/entrar/google`. La persona elige su cuenta y vuelve: entra con el perfil elegido |
+| RF-31 | `POST /acceso/google/inicio {"perfil":"Admin"}` → `rol_invalido`; `POST /acceso/microsoft/canje` con `code`/`state` inventados → error y ninguna sesión |
+| RF-33 | Un profesor que entra como **alumno** llega al chat (elige profesor, incluido él mismo) y sigue siendo profesor; entrando como **profesor** llega a su panel |
+| RF-33 | Como alumna: la barra lateral dice *Con <profesor>*; **Cambiar** abre *Tu profesor* con la lista de profesores y sus cursos; *Volver sin cambiar* regresa al chat |
+| RF-33 | Primer acceso como alumno (pruebas .NET y, con una cuenta nueva, en pantalla): tras Google sale directo *Elige a tu profesor*; como profesor entra directo a su panel |
+| RF-33 | Un Alumno o un Docente contra `GET /admin/usuarios` → **403** |
+| RF-34 | Un docente que no es dueño del curso contra `GET /clases/$CLA/contenido` → **403**; el dueño → 200 |
 | RF-34 | Como docente: cada clase muestra su material (estado *Listo*, páginas, tokens), la ventana del examen, el interruptor de ampliación (apagado) y el reporte |
 | RF-32 | Al entrar como alumna sin OpenRouter, la web va sola a `openrouter.ai/auth` (la persona inicia sesión y autoriza, no tú). Si vuelve cancelando, queda en el chat con el panel de conexión y **no** la redirige otra vez |
 
@@ -180,7 +185,7 @@ Dilo explícitamente al reportar; no los marques como aprobados:
 
 | Requisito | Estado |
 | --- | --- |
-| RF-31 | Con cuentas reales solo si alguien registró la aplicación en Microsoft Entra ID y en Google (redirecciones `http://localhost:4200/entrar/microsoft` y `/entrar/google`) y configuró su `ClientId`/secreto; si no, solo se verifica con los usuarios de prueba y con las pruebas .NET |
+| RF-31 | Google está registrado (proyecto `tutor-pre-clase`, modo prueba: solo entran los *Test users*). **Microsoft no**: la cuenta UPC de alumno no puede registrar apps (403); ver skill `configurar-oauth`. Sin su `ClientId`, *Continuar con Microsoft* solo avisa que no está configurado |
 | RF-34 | El panel del docente todavía no ajusta ventana, intentos, tiempo ni modo de feedback: solo por `PUT /clases/$CLA/examen` |
 | RF-35 | El modelo del tutor se cambia solo por `PUT /admin/agentes/openrouter`; no hay pantalla |
 | RF-05 | La justificación cita el material, pero las **referencias** no se guardan aún en `pregunta_referencia` |
@@ -204,7 +209,7 @@ docker volume rm tutor-datos tutor-claves
 
 Reporta por bloques: qué requisito pasó, cuál falló y con qué evidencia, y cuáles se
 saltaron (por falta de credencial o porque no están implementados). Quita el archivo de
-prueba de `course-content/`; el usuario de prueba de RF-33 se va al borrar el volumen. No des por bueno lo que
+prueba de `course-content/`. No des por bueno lo que
 no comprobaste.
 
 Un modelo real no repite frases exactas: verifica el **comportamiento** (que cite, que marque

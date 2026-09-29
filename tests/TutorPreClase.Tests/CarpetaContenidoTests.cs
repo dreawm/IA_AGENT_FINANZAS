@@ -4,6 +4,7 @@ using DocumentFormat.OpenXml.Spreadsheet;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using TutorPreClase.Domain.Entidades;
 using TutorPreClase.Infrastructure.Contenido;
 using TutorPreClase.Tests.Infraestructura;
 
@@ -24,6 +25,13 @@ public class NombresCarpetaTests
         Assert.Equal((4, "M4 - Capital de trabajo neto"), NombresCarpeta.Clase("M4 - Capital de trabajo neto", 1));
         Assert.Equal((3, "Repaso general"), NombresCarpeta.Clase("Repaso general", 3));
     }
+
+    [Theory]
+    [InlineData("Profe@UPC.edu.pe", "profe@upc.edu.pe")]
+    [InlineData("MFEP - Finanzas empresariales", null)]
+    [InlineData("@sin-usuario", null)]
+    public void La_carpeta_del_profesor_es_su_correo(string carpeta, string? correo) =>
+        Assert.Equal(correo, NombresCarpeta.Profesor(carpeta));
 
     [Theory]
     [InlineData("~$Anexo.xlsx", true)]
@@ -124,7 +132,7 @@ public sealed class SincronizadorCarpetaTests : IDisposable
 
     public SincronizadorCarpetaTests()
     {
-        _clase = Path.Combine(_raiz, "MFEP - Finanzas empresariales", "M1 - Estados financieros");
+        _clase = Path.Combine(_raiz, "Profe@UPC.edu.pe", "MFEP - Finanzas empresariales", "M1 - Estados financieros");
         Directory.CreateDirectory(_clase);
 
         var extractores = new ExtractorTextoFactory([new ExtractorTextoPlano(), new ExtractorPdf(), new ExtractorXlsx()]);
@@ -229,6 +237,44 @@ public sealed class SincronizadorCarpetaTests : IDisposable
         File.WriteAllText(ruta, "Versión 2");
         await _sincronizador.SincronizarAsync();
         Assert.Equal(2, _avisos.Publicados.Count);
+    }
+
+    [Fact]
+    public async Task Cada_curso_es_del_profesor_de_su_carpeta_y_llega_a_los_alumnos_que_lo_eligieron()
+    {
+        File.WriteAllText(Path.Combine(_clase, "Resumen.md"), "Contenido");
+        await _sincronizador.SincronizarAsync();
+
+        // El profesor queda registrado con su correo aunque nunca haya entrado.
+        var profesor = _banco.Db.Usuarios.Single(u => u.Email == "profe@upc.edu.pe");
+        Assert.Equal(RolUsuario.Docente, profesor.Rol);
+        var curso = _banco.Db.Cursos.Single();
+        Assert.Equal(profesor.Id, curso.DocenteId);
+        Assert.Contains(_banco.Db.Matriculas, m => m.UsuarioId == profesor.Id && m.CursoId == curso.Id);
+
+        // Un curso nuevo del profesor llega a sus alumnos; los de otro profesor no lo ven.
+        var suyo = new Usuario { Email = "a@gmail.com", Nombre = "A", Rol = RolUsuario.Alumno, ProfesorId = profesor.Id };
+        var ajeno = new Usuario { Email = "b@gmail.com", Nombre = "B", Rol = RolUsuario.Alumno, ProfesorId = Guid.NewGuid() };
+        _banco.Db.Usuarios.AddRange(suyo, ajeno);
+        _banco.Db.SaveChanges();
+
+        Directory.CreateDirectory(Path.Combine(_raiz, "Profe@UPC.edu.pe", "MFEF - Finanzas II", "M1 - Repaso"));
+        await _sincronizador.SincronizarAsync();
+
+        var nuevo = _banco.Db.Cursos.Single(c => c.Codigo == "MFEF");
+        Assert.Contains(_banco.Db.Matriculas, m => m.UsuarioId == suyo.Id && m.CursoId == nuevo.Id);
+        Assert.DoesNotContain(_banco.Db.Matriculas, m => m.UsuarioId == ajeno.Id);
+    }
+
+    [Fact]
+    public async Task Una_carpeta_de_primer_nivel_que_no_es_un_correo_se_omite()
+    {
+        Directory.CreateDirectory(Path.Combine(_raiz, "MFEP - Finanzas empresariales", "M1 - Estados financieros"));
+
+        var resumen = await _sincronizador.SincronizarAsync();
+
+        // Solo cuenta el curso de la carpeta del profesor.
+        Assert.Equal(1, resumen.Cursos);
     }
 
     [Fact]

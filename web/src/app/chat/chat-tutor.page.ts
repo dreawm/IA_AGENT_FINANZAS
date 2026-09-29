@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { EventoTutor, TutorStreamService } from '../datos/tutor-stream.service';
 import { SesionService } from '../datos/sesion.service';
+import { AccesoService } from '../datos/acceso.service';
 import {
   Agente,
   ClaseResumen,
@@ -30,8 +31,11 @@ const AUTOMATICO = 'tutor.openrouter.automatico';
 export class ChatTutorPage {
   private readonly api = inject(TutorStreamService);
   private readonly sesion = inject(SesionService);
+  private readonly acceso = inject(AccesoService);
   private readonly destruccion = inject(DestroyRef);
 
+  /** Nombre del profesor que eligió: solo ve sus cursos (RF-33). */
+  readonly profesor = signal('');
   readonly clases = signal<ClaseResumen[]>([]);
   readonly agentes = signal<Agente[]>([]);
   readonly claseActiva = signal<ClaseResumen | null>(null);
@@ -93,11 +97,31 @@ export class ChatTutorPage {
     this.escucharNovedades();
     if (!this.usuarioId()) return;
     await this.completarOAuth();
+    if (!(await this.cargarProfesor())) return;
     await this.cargar();
   }
 
   salir(): void {
     this.sesion.salir();
+  }
+
+  cambiarProfesor(): void {
+    this.sesion.eligiendoProfesor.set(true);
+  }
+
+  /** Sin profesor elegido no hay cursos que mostrar: primero lo elige. */
+  private async cargarProfesor(): Promise<boolean> {
+    try {
+      const { profesor } = await this.acceso.miProfesor();
+      if (!profesor) {
+        this.sesion.eligiendoProfesor.set(true);
+        return false;
+      }
+      this.profesor.set(profesor.nombre);
+    } catch {
+      // Sin el nombre del profesor el chat sigue funcionando.
+    }
+    return true;
   }
 
   /**

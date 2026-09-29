@@ -29,6 +29,7 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
 // Inicio de sesion con Microsoft o Google (RF-31): la API canjea el codigo y emite su
 // propia sesion, con el rol que tiene el usuario en la plataforma.
 builder.Services.Configure<OpcionesAcceso>(builder.Configuration.GetSection(OpcionesAcceso.Seccion));
+builder.Services.PostConfigure<OpcionesAcceso>(CredencialesEnCarpeta.Completar);
 builder.Services.AddSingleton<ServicioSesion>();
 builder.Services.AddScoped<ConexionIdentidad>();
 builder.Services.AddHttpClient("identidad", c => c.Timeout = TimeSpan.FromSeconds(20));

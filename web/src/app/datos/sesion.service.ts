@@ -8,7 +8,10 @@ export interface UsuarioSesion {
   id: string;
   nombre: string;
   email: string;
+  /** Con el que actúa en esta sesión. */
   rol: Rol;
+  /** Con los que puede entrar: un profesor, también como alumno. */
+  vistas?: Rol[];
 }
 
 export interface Sesion {
@@ -38,8 +41,8 @@ export class SesionService {
   readonly usuario = computed(() => this.sesion()?.usuario ?? null);
   readonly usuarioId = computed(() => this.usuario()?.id ?? '');
 
-  /** El docente hace de administrador: alterna entre su panel y la gestión de usuarios. */
-  readonly verUsuarios = signal(false);
+  /** El alumno está eligiendo (o cambiando) a su profesor: ve solo los cursos de ese profesor. */
+  readonly eligiendoProfesor = signal(false);
 
   establecer(sesion: Sesion): void {
     this.sesion.set(sesion);
@@ -48,7 +51,7 @@ export class SesionService {
 
   salir(): void {
     this.sesion.set(null);
-    this.verUsuarios.set(false);
+    this.eligiendoProfesor.set(false);
     sessionStorage.removeItem(CLAVE);
     sessionStorage.removeItem('tutor.openrouter.automatico');
     history.replaceState(null, '', '/');

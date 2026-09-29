@@ -35,16 +35,17 @@ repite el paso 2 para que la API lo recoja.
 cd <raíz del repo>
 docker rm -f tutor-api 2>/dev/null
 ENVF=""; [ -f tutor.env ] && ENVF="--env-file tutor.env"
+mkdir -p secrets
 
 MSYS_NO_PATHCONV=1 docker run -d --name tutor-api -p 5080:5080 $ENVF \
-  -v "$(pwd -W):/repo:ro" -v "$(pwd -W)/course-content:/contenido:ro" \
+  -v "$(pwd -W):/repo:ro" -v "$(pwd -W)/course-content:/contenido:ro" -v "$(pwd -W)/secrets:/secrets:ro" \
   -v tutor-datos:/datos -v tutor-claves:/root/.aspnet \
   -e ASPNETCORE_ENVIRONMENT=Development -e ASPNETCORE_URLS=http://0.0.0.0:5080 \
   -e ConnectionStrings__Sqlite="DataSource=/datos/tutorpreclase-dev.db" \
-  -e Almacen__Raiz=/datos/almacen -e CarpetaContenido__Ruta=/contenido \
+  -e Almacen__Raiz=/datos/almacen -e CarpetaContenido__Ruta=/contenido -e Acceso__CarpetaSecretos=/secrets \
   mcr.microsoft.com/dotnet/sdk:10.0 bash -c '
     rm -rf /work && mkdir /work &&
-    tar -C /repo --exclude=node_modules --exclude=bin --exclude=obj --exclude=.git \
+    tar -C /repo --exclude=node_modules --exclude=bin --exclude=obj --exclude=.git --exclude=secrets \
         --exclude=web --exclude="*.db" --exclude=almacen --exclude=course-content -cf - . | tar -C /work -xf - &&
     cd /work && dotnet run --project src/TutorPreClase.Api --no-launch-profile'
 
@@ -55,8 +56,12 @@ for i in $(seq 1 60); do curl -s --max-time 2 http://localhost:5080/salud && bre
   lo compilado en Linux no se mezcla con lo de Windows.
 - **`course-content/` se monta aparte y en vivo** (`/contenido`): es la carpeta del docente.
   La API la sincroniza al arrancar y cada 30 s, así que lo que se copie o quite ahí se ve
-  sin reiniciar el contenedor. Estructura: `course-content/<CÓDIGO - Nombre del curso>/
-  <N - Título de la clase>/<archivos>` (PDF, PPTX, DOCX, XLSX, MD, TXT).
+  sin reiniciar el contenedor. Estructura: `course-content/<correo del profesor>/<CÓDIGO -
+  Nombre del curso>/<N - Título de la clase>/<archivos>` (PDF, PPTX, DOCX, XLSX, MD, TXT).
+  Cada profesor administra solo su carpeta.
+- **`secrets/` se monta solo lectura** (`/secrets`, ignorada por git): de ahí la API lee las
+  credenciales OAuth (el JSON de Google y `microsoft.json`). Para registrarlas, skill
+  `configurar-oauth`. Nunca abras ni muestres esos archivos.
 - **Volúmenes:** `tutor-datos` guarda la base SQLite y el contenido subido; `tutor-claves`,
   las claves de cifrado de las credenciales. Sin ese segundo volumen, al recrear el
   contenedor la cuenta de OpenRouter conectada ya no se podría descifrar y habría que
@@ -103,9 +108,11 @@ volumen `tutor-datos`.
 
 Informa al usuario de:
 
-- **Web** → http://localhost:4200: página de entrada. Con Microsoft/Google configurados, se entra con
-  la cuenta de la universidad; en desarrollo, también con "Entrar como usuario de prueba"
-  (Alumna Demo, Docente Demo, Administración Demo). Cada rol va a su pantalla.
+- **Web** → http://localhost:4200: página de entrada, solo OAuth (*Continuar con Google* /
+  *Continuar con Microsoft (Outlook)*; cada botón necesita su `ClientId` en `tutor.env`).
+  La primera vez que alguien entra elige si es alumno (y de qué profesor) o profesor. Para
+  probar en Chrome sin OAuth: `POST /api/v1/acceso/desarrollo {usuarioId}` da una sesión y
+  se guarda en `sessionStorage['tutor.sesion']` (solo desarrollo; la web no lo muestra).
 - **API** → http://localhost:5080 (`/salud`, `/demo`), en el contenedor `tutor-api`
 - Que el docente sube el material copiándolo en `course-content/` (una subcarpeta por
   clase); el curso, sus clases y sus exámenes salen de ahí. Las preguntas no las escribe
@@ -115,9 +122,9 @@ Informa al usuario de:
   `X-Usuario-Id: <id>` y `X-Usuario-Rol: Docente|Alumno|Admin`.
 - Que para entrar con cuentas reales la persona pega el `ClientId`/secreto de Google (y de
   Microsoft) en `tutor.env` en la raíz del repo (ignorado por git; el paso 2 lo pasa con
-  `--env-file`), junto con `Acceso__Docentes__0=<correo del profesor>`. Cualquier otra
-  cuenta entra como alumno de todos los cursos (registro abierto); el profesor gestiona
-  los usuarios desde el botón *Usuarios* de su panel. **Nunca pidas ni leas en voz alta esos secretos**: no los muestres con `cat`.
+  `--env-file`). No hay que dar de alta a nadie: al entrar por primera vez cada persona
+  elige si es alumno (y de qué profesor) o profesor. **Nunca pidas ni leas en voz alta esos
+  secretos**: no los muestres con `cat`.
 - Que para conversar el alumno pulsa **Entrar con OpenRouter (gratis)** en el panel
   "Conecta tu tutor" e inicia sesión él mismo (puede crear la cuenta con su Google). No hay
   claves que pegar. **Nunca inicies sesión ni crees la cuenta tú.**

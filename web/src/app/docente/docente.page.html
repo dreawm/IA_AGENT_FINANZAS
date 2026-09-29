@@ -11,7 +11,10 @@
         <span class="fecha">{{ clase.inicio | date: 'EEE d MMM, HH:mm' }}</span>
       </button>
     } @empty {
-      <p class="vacio">Aún no tienes clases. Crea una subcarpeta por clase en la carpeta del curso.</p>
+      <p class="vacio">
+        Aún no tienes cursos. Crea en <code>course-content</code> una carpeta con tu correo, dentro una por
+        curso (<code>CÓDIGO - Nombre</code>) y dentro una por clase.
+      </p>
     }
   </nav>
 
@@ -21,10 +24,7 @@
         <h1>{{ activa()?.titulo ?? 'Panel del docente' }}</h1>
         <p class="quien">{{ sesion.usuario()?.nombre }}</p>
       </div>
-      <div class="acciones">
-        <button class="enlace" (click)="sesion.verUsuarios.set(true)">Usuarios</button>
-        <button class="enlace" (click)="sesion.salir()">Salir</button>
-      </div>
+      <button class="enlace" (click)="sesion.salir()">Salir</button>
     </header>
 
     @if (error()) {

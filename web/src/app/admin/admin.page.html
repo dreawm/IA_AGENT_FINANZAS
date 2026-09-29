@@ -1,14 +1,9 @@
 <header class="cabecera">
   <div>
-    <h1>{{ esDocente ? 'Usuarios' : 'Administración' }}</h1>
+    <h1>Administración</h1>
     <p class="quien">{{ sesion.usuario()?.nombre }}</p>
   </div>
-  <div class="acciones">
-    @if (esDocente) {
-      <button class="enlace" (click)="sesion.verUsuarios.set(false)">Volver a mis clases</button>
-    }
-    <button class="enlace" (click)="sesion.salir()">Salir</button>
-  </div>
+  <button class="enlace" (click)="sesion.salir()">Salir</button>
 </header>
 
 @if (error()) {
@@ -22,8 +17,8 @@
   <section aria-labelledby="t-alta">
     <h2 id="t-alta">Cambiar el rol o los cursos de una persona</h2>
     <p class="ayuda">
-      Cualquiera que entre con su cuenta de Google o Microsoft queda como alumno de todos los cursos. Aquí
-      puedes hacer docente a alguien o darlo de alta antes de que entre. Usa el correo de su cuenta.
+      Cada persona elige al entrar si es alumno o profesor. Aquí puedes corregir su rol o darla de alta
+      antes de que entre. Usa el correo de su cuenta de Google o Microsoft.
     </p>
 
     <form (submit)="$event.preventDefault(); guardar()">

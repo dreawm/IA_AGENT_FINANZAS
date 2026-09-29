@@ -1,11 +1,15 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using TutorPreClase.Api.Seguridad;
 using TutorPreClase.Application.Abstracciones;
+using TutorPreClase.Domain.Entidades;
 
 namespace TutorPreClase.Api.Endpoints;
 
 public sealed record CanjeAccesoPeticion(string Code, string State);
 public sealed record AccesoDesarrolloPeticion(Guid UsuarioId);
+public sealed record InicioAccesoPeticion(string? Perfil);
+public sealed record RegistroPeticion(string Token, string Rol, Guid? ProfesorId);
 
 /// <summary>
 /// Pagina de entrada de todos los roles (RF-31): la web pide la URL del proveedor, el
@@ -19,16 +23,42 @@ public static class EndpointsAcceso
 
         grupo.MapGet("/proveedores", (ConexionIdentidad identidad) => Results.Ok(new
         {
-            proveedores = identidad.Disponibles().Select(p => new { id = p.Id, nombre = p.Nombre }),
+            proveedores = identidad.Disponibles().Select(p => new { id = p.Id, nombre = p.Nombre, configurado = p.Configurado }),
             desarrollo = !entorno.IsProduction()
         })).AllowAnonymous();
 
-        grupo.MapPost("/{proveedor}/inicio", (string proveedor, ConexionIdentidad identidad) =>
-            Results.Ok(new { url = identidad.Iniciar(proveedor) })).AllowAnonymous();
+        grupo.MapPost("/{proveedor}/inicio", (string proveedor, InicioAccesoPeticion? peticion, ConexionIdentidad identidad) =>
+            Results.Ok(new { url = identidad.Iniciar(proveedor, peticion?.Perfil) })).AllowAnonymous();
 
         grupo.MapPost("/{proveedor}/canje", async (
             string proveedor, CanjeAccesoPeticion peticion, ConexionIdentidad identidad, CancellationToken ct) =>
             Results.Ok(await identidad.CanjearAsync(proveedor, peticion.Code, peticion.State, ct))).AllowAnonymous();
+
+        // Primer acceso: la persona elige si es alumno (y de qué profesor) o profesor (RF-33).
+        grupo.MapPost("/registro", async (RegistroPeticion peticion, ConexionIdentidad identidad, CancellationToken ct) =>
+            Results.Ok(await identidad.RegistrarAsync(peticion.Token, peticion.Rol, peticion.ProfesorId, ct))).AllowAnonymous();
+
+        // Profesores entre los que elige el alumno: con un registro en curso o ya con sesión.
+        grupo.MapGet("/profesores", async (
+            HttpContext http, string? registro, ConexionIdentidad identidad, IAppDbContext db, CancellationToken ct) =>
+        {
+            if (http.User.Identity?.IsAuthenticated != true && !identidad.RegistroVigente(registro))
+                return Results.Unauthorized();
+
+            var profesores = await db.Usuarios.AsNoTracking()
+                .Where(u => u.Rol == RolUsuario.Docente)
+                .OrderBy(u => u.Nombre)
+                .Select(u => new
+                {
+                    id = u.Id,
+                    nombre = u.Nombre,
+                    cursos = db.Cursos.Where(c => c.DocenteId == u.Id).OrderBy(c => c.Codigo)
+                        .Select(c => c.Codigo + " - " + c.Nombre).ToList()
+                })
+                .ToListAsync(ct);
+
+            return Results.Ok(profesores);
+        }).AllowAnonymous();
 
         // La web lo usa al recargar la pagina para saber si la sesion sigue viva.
         grupo.MapGet("/yo", async (HttpContext http, IAppDbContext db, CancellationToken ct) =>
@@ -36,7 +66,8 @@ public static class EndpointsAcceso
             var usuario = await db.Usuarios.AsNoTracking().FirstOrDefaultAsync(u => u.Id == http.User.Id(), ct);
             return usuario is null
                 ? Results.Unauthorized()
-                : Results.Ok(new UsuarioSesion(usuario.Id, usuario.Nombre, usuario.Email, usuario.Rol.ToString()));
+                : Results.Ok(new UsuarioSesion(usuario.Id, usuario.Nombre, usuario.Email,
+                    http.User.FindFirstValue(ClaimTypes.Role) ?? usuario.Rol.ToString(), ServicioSesion.VistasDe(usuario)));
         }).RequireAuthorization();
 
         if (entorno.IsProduction()) return;

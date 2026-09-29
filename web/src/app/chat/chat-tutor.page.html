@@ -1,6 +1,12 @@
 <div class="disposicion">
   <nav class="clases" aria-label="Mis clases">
     <h2>Mis clases</h2>
+    @if (profesor()) {
+      <p class="profesor-actual">
+        Con {{ profesor() }}
+        <button type="button" class="enlace" [disabled]="enExamen()" (click)="cambiarProfesor()">Cambiar</button>
+      </p>
+    }
     @for (clase of clases(); track clase.claseId) {
       <button
         class="clase"
@@ -14,7 +20,7 @@
         }
       </button>
     } @empty {
-      <p class="vacio">Todavía no tienes clases asignadas.</p>
+      <p class="vacio">Tu profesor todavía no ha subido clases.</p>
     }
   </nav>
 
@@ -42,7 +48,7 @@
         }
 
         <button class="enlace" (click)="alternarPanelCredenciales()">Mi cuenta de tutor</button>
-      <button class="enlace" (click)="salir()">Salir</button>
+        <button class="enlace" (click)="salir()">Salir</button>
 
         @if (!enExamen() && claseActiva()?.examen?.publicado && !sinAgente()) {
           <button class="principal" [disabled]="preparandoExamen() || enviando()" (click)="comenzarExamen()">

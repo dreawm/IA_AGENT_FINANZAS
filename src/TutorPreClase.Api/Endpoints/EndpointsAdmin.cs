@@ -16,11 +16,10 @@ public static class EndpointsAdmin
     public static void MapearAdmin(this IEndpointRouteBuilder app)
     {
         var grupo = app.MapGroup("/api/v1/admin")
-            .RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Docente));
+            .RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
-        // RF-33: el administrador (en esta etapa, el profesor) asigna el rol y matricula. El
-        // correo es la identidad con la que la persona inicia sesion; con registro abierto,
-        // quien no figura aqui entra igual como alumno.
+        // RF-33: cada persona elige su rol al entrar; el administrador puede corregirlo o
+        // dar de alta a alguien de antemano. El correo es su identidad al iniciar sesion.
         grupo.MapGet("/usuarios", async (IAppDbContext db, CancellationToken ct) =>
             Results.Ok(await db.Usuarios.AsNoTracking()
                 .OrderBy(u => u.Rol).ThenBy(u => u.Nombre)

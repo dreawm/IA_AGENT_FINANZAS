@@ -5,8 +5,8 @@ import { Rol, SesionService } from '../datos/sesion.service';
 const ROLES: Rol[] = ['Alumno', 'Docente', 'Admin'];
 
 /**
- * Gestión de usuarios (RF-33). Con registro abierto, cualquiera entra como alumno; aquí se
- * cambia el rol o los cursos. La usa el administrador y, en esta etapa, el profesor.
+ * Gestión de usuarios (RF-33). Cada persona elige su rol al entrar; aquí el administrador
+ * lo corrige o da de alta a alguien de antemano.
  */
 @Component({
   selector: 'app-admin',
@@ -18,7 +18,6 @@ export class AdminPage {
   readonly sesion = inject(SesionService);
 
   readonly roles = ROLES;
-  readonly esDocente = this.sesion.usuario()?.rol === 'Docente';
   readonly usuarios = signal<UsuarioAdmin[]>([]);
   readonly cursos = signal<CursoAdmin[]>([]);
   readonly error = signal('');

@@ -43,3 +43,6 @@ npm-debug.log*
 
 # Secretos locales del contenedor (ClientId/secreto de Google y Microsoft), nunca al repo
 tutor.env
+
+# Credenciales OAuth descargadas (Google, Microsoft): nunca al repo
+secrets/

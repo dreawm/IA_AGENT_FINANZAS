@@ -105,13 +105,12 @@ public class AccesoTests
     }
 
     private static (ConexionIdentidad Conexion, ProveedorIdentidadSimulado Proveedor) Montar(
-        BancoDePruebas banco, string[]? administradores = null, string[]? docentes = null, bool registroAbierto = true)
+        BancoDePruebas banco, string[]? administradores = null, bool registroAbierto = true)
     {
         var opciones = Options.Create(new OpcionesAcceso
         {
             Proveedores = new() { ["google"] = Google },
             Administradores = administradores ?? [],
-            Docentes = docentes ?? [],
             RegistroAbierto = registroAbierto,
             ClaveSesion = Convert.ToBase64String(new byte[32])
         });
@@ -129,6 +128,24 @@ public class AccesoTests
         new Uri(url).Query.TrimStart('?').Split('&').Select(p => p.Split('=', 2))
             .ToDictionary(p => p[0], p => Uri.UnescapeDataString(p[1]));
 
+    private static async Task<ResultadoAcceso> EntrarAsync(
+        ConexionIdentidad conexion, ProveedorIdentidadSimulado proveedor, string email, string? perfil = null)
+    {
+        var url = Parametros(conexion.Iniciar("google", perfil));
+        proveedor.IdToken = IdToken(Carga(email: email, nonce: url["nonce"]));
+        return await conexion.CanjearAsync("google", "codigo", url["state"], CancellationToken.None);
+    }
+
+    /// <summary>Un profesor dueño del curso sembrado, como si tuviera su carpeta.</summary>
+    private static Usuario ProfesorDelCurso(BancoDePruebas banco)
+    {
+        var profesor = new Usuario { Email = "profe@upc.edu.pe", Nombre = "Profe", Rol = RolUsuario.Docente };
+        banco.Db.Usuarios.Add(profesor);
+        banco.Db.Cursos.Single().DocenteId = profesor.Id;
+        banco.Db.SaveChanges();
+        return profesor;
+    }
+
     [Fact]
     public async Task Un_usuario_registrado_entra_con_su_rol_de_la_plataforma()
     {
@@ -141,9 +158,10 @@ public class AccesoTests
         Assert.Equal("openid email profile", url["scope"]);
 
         proveedor.IdToken = IdToken(Carga(email: alumna.Email, nonce: url["nonce"]));
-        var sesion = await conexion.CanjearAsync("google", "codigo", url["state"], CancellationToken.None);
+        var resultado = await conexion.CanjearAsync("google", "codigo", url["state"], CancellationToken.None);
 
-        Assert.Equal((alumna.Id, "Alumno"), (sesion.Usuario.Id, sesion.Usuario.Rol));
+        Assert.Null(resultado.Registro);
+        Assert.Equal((alumna.Id, "Alumno"), (resultado.Sesion!.Usuario.Id, resultado.Sesion.Usuario.Rol));
         Assert.Contains("code_verifier=", proveedor.CuerpoRecibido);
 
         // El estado es de un solo uso.
@@ -158,11 +176,7 @@ public class AccesoTests
         using var banco = new BancoDePruebas().Sembrar();
         var (conexion, proveedor) = Montar(banco, registroAbierto: false);
 
-        var url = Parametros(conexion.Iniciar("google"));
-        proveedor.IdToken = IdToken(Carga(email: "intruso@gmail.com", nonce: url["nonce"]));
-
-        var error = await Assert.ThrowsAsync<AccesoException>(
-            () => conexion.CanjearAsync("google", "codigo", url["state"], CancellationToken.None));
+        var error = await Assert.ThrowsAsync<AccesoException>(() => EntrarAsync(conexion, proveedor, "intruso@gmail.com"));
 
         Assert.Equal(("no_registrado", 403), (error.Codigo, error.Estado));
         Assert.DoesNotContain(banco.Db.Usuarios, u => u.Email == "intruso@gmail.com");
@@ -174,59 +188,167 @@ public class AccesoTests
         using var banco = new BancoDePruebas().Sembrar();
         var (conexion, proveedor) = Montar(banco, administradores: ["Directora@upc.edu.pe"]);
 
-        var url = Parametros(conexion.Iniciar("google"));
-        proveedor.IdToken = IdToken(Carga(email: "directora@upc.edu.pe", nonce: url["nonce"]));
+        var resultado = await EntrarAsync(conexion, proveedor, "directora@upc.edu.pe");
 
-        var sesion = await conexion.CanjearAsync("google", "codigo", url["state"], CancellationToken.None);
-
-        Assert.Equal("Admin", sesion.Usuario.Rol);
+        Assert.Equal("Admin", resultado.Sesion!.Usuario.Rol);
         Assert.Equal(RolUsuario.Admin, banco.Db.Usuarios.Single(u => u.Email == "directora@upc.edu.pe").Rol);
     }
 
-    private static async Task<Sesion> EntrarAsync(
-        ConexionIdentidad conexion, ProveedorIdentidadSimulado proveedor, string email)
-    {
-        var url = Parametros(conexion.Iniciar("google"));
-        proveedor.IdToken = IdToken(Carga(email: email, nonce: url["nonce"]));
-        return await conexion.CanjearAsync("google", "codigo", url["state"], CancellationToken.None);
-    }
-
     [Fact]
-    public async Task Con_registro_abierto_cualquiera_entra_como_alumno_de_todos_los_cursos()
+    public async Task La_primera_vez_no_se_crea_nadie_hasta_que_la_persona_elige_su_rol()
     {
         using var banco = new BancoDePruebas().Sembrar();
         var (conexion, proveedor) = Montar(banco);
 
-        var sesion = await EntrarAsync(conexion, proveedor, "cualquiera@gmail.com");
+        var resultado = await EntrarAsync(conexion, proveedor, "nueva@gmail.com");
 
-        Assert.Equal("Alumno", sesion.Usuario.Rol);
-        var cursos = banco.Db.Cursos.Select(c => c.Id).ToList();
-        Assert.NotEmpty(cursos);
-        Assert.All(cursos, c => Assert.Contains(banco.Db.Matriculas, m => m.UsuarioId == sesion.Usuario.Id && m.CursoId == c));
-
-        // Un curso nuevo en la carpeta aparece en su siguiente acceso.
-        var nuevo = new Curso { Codigo = "MNEW", Nombre = "Curso nuevo" };
-        banco.Db.Cursos.Add(nuevo);
-        banco.Db.SaveChanges();
-
-        await EntrarAsync(conexion, proveedor, "cualquiera@gmail.com");
-        Assert.Contains(banco.Db.Matriculas, m => m.UsuarioId == sesion.Usuario.Id && m.CursoId == nuevo.Id);
-        Assert.Single(banco.Db.Usuarios, u => u.Email == "cualquiera@gmail.com");
+        Assert.Null(resultado.Sesion);
+        Assert.Equal("nueva@gmail.com", resultado.Registro!.Email);
+        Assert.True(conexion.RegistroVigente(resultado.Registro.Token));
+        Assert.DoesNotContain(banco.Db.Usuarios, u => u.Email == "nueva@gmail.com");
     }
 
     [Fact]
-    public async Task El_profesor_de_la_configuracion_entra_como_docente_aunque_antes_entrara_como_alumno()
+    public async Task El_alumno_elige_a_su_profesor_y_solo_queda_en_los_cursos_de_ese_profesor()
     {
         using var banco = new BancoDePruebas().Sembrar();
+        var profesor = ProfesorDelCurso(banco);
+        var otro = new Usuario { Email = "otro@upc.edu.pe", Nombre = "Otro", Rol = RolUsuario.Docente };
+        var cursoAjeno = new Curso { Codigo = "ECO1", Nombre = "Economía", DocenteId = otro.Id };
+        banco.Db.Usuarios.Add(otro);
+        banco.Db.Cursos.Add(cursoAjeno);
+        banco.Db.SaveChanges();
 
-        var (abierta, proveedor) = Montar(banco);
-        Assert.Equal("Alumno", (await EntrarAsync(abierta, proveedor, "profe@gmail.com")).Usuario.Rol);
+        var (conexion, proveedor) = Montar(banco);
+        var registro = (await EntrarAsync(conexion, proveedor, "nueva@gmail.com")).Registro!;
 
-        var (conProfesor, proveedor2) = Montar(banco, docentes: ["Profe@gmail.com"]);
-        var sesion = await EntrarAsync(conProfesor, proveedor2, "profe@gmail.com");
+        var sesion = await conexion.RegistrarAsync(registro.Token, "Alumno", profesor.Id, CancellationToken.None);
+
+        Assert.Equal("Alumno", sesion.Usuario.Rol);
+        var cursos = banco.Db.Matriculas.Where(m => m.UsuarioId == sesion.Usuario.Id).Select(m => m.CursoId).ToList();
+        Assert.Equal([banco.Db.Cursos.Single(c => c.DocenteId == profesor.Id).Id], cursos);
+
+        // El registro es de un solo uso.
+        var repetido = await Assert.ThrowsAsync<AccesoException>(
+            () => conexion.RegistrarAsync(registro.Token, "Alumno", profesor.Id, CancellationToken.None));
+        Assert.Equal("acceso_vencido", repetido.Codigo);
+    }
+
+    [Fact]
+    public async Task El_perfil_elegido_antes_de_entrar_decide_con_que_rol_se_entra()
+    {
+        using var banco = new BancoDePruebas().Sembrar();
+        var profesor = ProfesorDelCurso(banco);
+        var alumna = banco.Db.Usuarios.Single(u => u.Rol == RolUsuario.Alumno);
+        var (conexion, proveedor) = Montar(banco);
+
+        // Primera vez como profesor: entra directo, sin más preguntas.
+        var nuevo = await EntrarAsync(conexion, proveedor, "profe.nuevo@gmail.com", "Docente");
+        Assert.Equal("Docente", nuevo.Sesion!.Usuario.Rol);
+
+        // Primera vez como alumno: falta elegir profesor, y el registro lo recuerda.
+        var registro = (await EntrarAsync(conexion, proveedor, "alumno.nuevo@gmail.com", "Alumno")).Registro!;
+        Assert.Equal("Alumno", registro.Perfil);
+
+        // El profesor puede entrar como alumno sin dejar de ser profesor.
+        var comoAlumno = (await EntrarAsync(conexion, proveedor, profesor.Email, "Alumno")).Sesion!;
+        Assert.Equal("Alumno", comoAlumno.Usuario.Rol);
+        Assert.Equal(["Docente", "Alumno"], comoAlumno.Usuario.Vistas);
+        Assert.Equal(RolUsuario.Docente, banco.Db.Usuarios.Single(u => u.Id == profesor.Id).Rol);
+
+        // Un alumno que entra como profesor pasa a serlo.
+        var ahoraProfesor = (await EntrarAsync(conexion, proveedor, alumna.Email, "Docente")).Sesion!;
+        Assert.Equal("Docente", ahoraProfesor.Usuario.Rol);
+
+        Assert.Equal("rol_invalido", Assert.Throws<AccesoException>(() => conexion.Iniciar("google", "Admin")).Codigo);
+    }
+
+    [Fact]
+    public async Task Un_profesor_que_elige_otro_profesor_como_alumno_conserva_sus_cursos()
+    {
+        using var banco = new BancoDePruebas().Sembrar();
+        var profesor = ProfesorDelCurso(banco);
+        var otro = new Usuario { Email = "otro@upc.edu.pe", Nombre = "Otro", Rol = RolUsuario.Docente };
+        var ajeno = new Curso { Codigo = "ECO1", Nombre = "Economía", DocenteId = otro.Id };
+        banco.Db.Usuarios.Add(otro);
+        banco.Db.Cursos.Add(ajeno);
+        banco.Db.SaveChanges();
+
+        profesor.ProfesorId = otro.Id;
+        await TutorPreClase.Application.Academico.MatriculasPorProfesor.AlinearAlumnoAsync(banco.Db, profesor, CancellationToken.None);
+        banco.Db.SaveChanges();
+
+        var cursos = banco.Db.Matriculas.Where(m => m.UsuarioId == profesor.Id).Select(m => m.CursoId).ToHashSet();
+        Assert.Contains(ajeno.Id, cursos);
+        Assert.Contains(banco.Db.Cursos.Single(c => c.DocenteId == profesor.Id).Id, cursos);
+    }
+
+    [Fact]
+    public async Task Un_alumno_sin_profesor_valido_no_se_registra()
+    {
+        using var banco = new BancoDePruebas().Sembrar();
+        var (conexion, proveedor) = Montar(banco);
+        var registro = (await EntrarAsync(conexion, proveedor, "nueva@gmail.com")).Registro!;
+
+        var error = await Assert.ThrowsAsync<AccesoException>(
+            () => conexion.RegistrarAsync(registro.Token, "Alumno", Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("profesor_invalido", error.Codigo);
+        Assert.DoesNotContain(banco.Db.Usuarios, u => u.Email == "nueva@gmail.com");
+    }
+
+    [Fact]
+    public async Task Quien_elige_ser_profesor_entra_como_docente_y_no_puede_elegir_ser_administrador()
+    {
+        using var banco = new BancoDePruebas().Sembrar();
+        var (conexion, proveedor) = Montar(banco);
+
+        var admin = (await EntrarAsync(conexion, proveedor, "listo@gmail.com")).Registro!;
+        var error = await Assert.ThrowsAsync<AccesoException>(
+            () => conexion.RegistrarAsync(admin.Token, "Admin", null, CancellationToken.None));
+        Assert.Equal("rol_invalido", error.Codigo);
+
+        var registro = (await EntrarAsync(conexion, proveedor, "profe.nueva@gmail.com")).Registro!;
+        var sesion = await conexion.RegistrarAsync(registro.Token, "Docente", null, CancellationToken.None);
 
         Assert.Equal("Docente", sesion.Usuario.Rol);
-        Assert.Equal(banco.Db.Cursos.Count(), banco.Db.Matriculas.Count(m => m.UsuarioId == sesion.Usuario.Id));
+    }
+}
+
+public class CredencialesEnCarpetaTests
+{
+    [Fact]
+    public void Lee_el_json_de_Google_y_el_de_Microsoft_sin_pisar_lo_configurado()
+    {
+        var carpeta = Path.Combine(Path.GetTempPath(), "secretos-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(carpeta);
+        try
+        {
+            File.WriteAllText(Path.Combine(carpeta, "client_secret_123-abc.apps.googleusercontent.com.json"),
+                """{"web":{"client_id":"id-google-de-prueba","client_secret":"secreto-google-de-prueba"}}""");
+            File.WriteAllText(Path.Combine(carpeta, "microsoft.json"),
+                """{"client_id":"id-ms-de-prueba","client_secret":"secreto-ms-de-prueba"}""");
+
+            var opciones = new OpcionesAcceso
+            {
+                CarpetaSecretos = carpeta,
+                Proveedores = new()
+                {
+                    ["google"] = new OpcionesProveedorIdentidad { Nombre = "Google" },
+                    ["microsoft"] = new OpcionesProveedorIdentidad { Nombre = "Microsoft", ClientId = "ya-configurado" }
+                }
+            };
+
+            CredencialesEnCarpeta.Completar(opciones);
+
+            Assert.Equal(("id-google-de-prueba", "secreto-google-de-prueba"),
+                (opciones.Proveedores["google"].ClientId, opciones.Proveedores["google"].ClientSecret));
+            Assert.Equal("ya-configurado", opciones.Proveedores["microsoft"].ClientId);
+        }
+        finally
+        {
+            Directory.Delete(carpeta, recursive: true);
+        }
     }
 }
 
@@ -285,8 +407,56 @@ public class SesionApiTests
         Assert.Equal(HttpStatusCode.Forbidden,
             (await api.Como(alumnoId, "Alumno").GetAsync("/api/v1/admin/usuarios")).StatusCode);
 
-        // En esta etapa el profesor hace de administrador.
-        Assert.Equal(HttpStatusCode.OK,
+        // El profesor administra su contenido, no los usuarios.
+        Assert.Equal(HttpStatusCode.Forbidden,
             (await api.Como(Guid.NewGuid(), "Docente").GetAsync("/api/v1/admin/usuarios")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Cada_profesor_administra_solo_sus_cursos()
+    {
+        using var api = new ApiDePruebas();
+        var (docenteId, _, _, claseId) = api.Sembrar();
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await api.Como(docenteId, "Docente").GetAsync($"/api/v1/clases/{claseId}/reporte")).StatusCode);
+
+        var otro = api.Como(Guid.NewGuid(), "Docente");
+        Assert.Equal(HttpStatusCode.Forbidden, (await otro.GetAsync($"/api/v1/clases/{claseId}/reporte")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await otro.PutAsJsonAsync($"/api/v1/clases/{claseId}/ampliacion", new { permitida = true })).StatusCode);
+    }
+
+    [Fact]
+    public async Task El_alumno_cambia_de_profesor_y_deja_de_ver_los_cursos_del_anterior()
+    {
+        using var api = new ApiDePruebas();
+        var (docenteId, alumnoId, cursoId, _) = api.Sembrar();
+
+        Guid otroId;
+        using (var db = api.NuevoContexto())
+        {
+            var otro = new Usuario { Email = "otro@uni.edu", Nombre = "Otro Profe", Rol = RolUsuario.Docente };
+            db.Usuarios.Add(otro);
+            db.Cursos.Add(new Curso { Codigo = "ECO1", Nombre = "Economía", DocenteId = otro.Id });
+            db.SaveChanges();
+            otroId = otro.Id;
+        }
+
+        var alumno = api.Como(alumnoId, "Alumno");
+        var actual = await alumno.GetFromJsonAsync<JsonElement>("/api/v1/alumno/profesor");
+        Assert.Equal(docenteId, actual.GetProperty("profesor").GetProperty("id").GetGuid());
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await alumno.PutAsJsonAsync("/api/v1/alumno/profesor", new { profesorId = otroId })).StatusCode);
+
+        using (var db = api.NuevoContexto())
+        {
+            var cursos = db.Matriculas.Where(m => m.UsuarioId == alumnoId).Select(m => m.Curso!.Codigo).ToList();
+            Assert.Equal(["ECO1"], cursos);
+        }
+
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await alumno.PutAsJsonAsync("/api/v1/alumno/profesor", new { profesorId = alumnoId })).StatusCode);
     }
 }

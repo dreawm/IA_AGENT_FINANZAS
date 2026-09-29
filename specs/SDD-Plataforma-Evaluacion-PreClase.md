@@ -82,8 +82,8 @@ Medir los conocimientos previos del alumno, cerrar sus vacíos con un tutor que 
 | RF-30 | Si el proveedor corta por límite de uso (HTTP 429), el chat dice cuándo puede volver, sin marcar la credencial como inválida ni perder el avance | Media |
 | RF-31 | Todos los usuarios entran por una única página de inicio de sesión con la cuenta de la universidad (OAuth / OpenID Connect); el sistema reconoce su rol (Alumno, Docente, Administrador) y lo lleva a su pantalla | Alta |
 | RF-32 | Al entrar, al alumno que no tiene OpenRouter conectado se le conecta en el mismo paso: tras el inicio de sesión va directo a autorizar OpenRouter y vuelve al chat listo | Alta |
-| RF-33 | Registro abierto: cualquiera que inicie sesión entra como alumno de todos los cursos, sin aprobación. El profesor (por su correo en la configuración) entra como docente y hace de administrador: cambia roles y matrículas (individual o por lista). Con el registro cerrado, solo entran los registrados | Alta |
-| RF-34 | El docente tiene su pantalla: ve el estado del material que subió a la carpeta, ajusta el examen y la ampliación de cada clase y consulta el reporte (RF-13, RF-16, RF-22) | Alta |
+| RF-33 | Autorregistro: en la página de entrada la persona elige primero su perfil, **alumno** o **profesor**, y luego entra con Google o Microsoft/Outlook, sin aprobación de nadie. Un profesor puede entrar también como alumno. El alumno elige además a su profesor y solo ve los cursos de ese profesor; puede cambiarlo después. El administrador puede corregir roles y matrículas. Con el registro cerrado, solo entran los registrados | Alta |
+| RF-34 | El profesor administra el contenido de **sus** cursos (su carpeta `course-content/<su correo>/`) y tiene su pantalla: estado del material, ajustes del examen y de la ampliación de cada clase y el reporte (RF-13, RF-16, RF-22). No ve ni toca los cursos de otro profesor | Alta |
 | RF-35 | El administrador elige el modelo de IA que usa el tutor y puede cambiarlo sin desplegar (RF-06, RF-17) | Media |
 
 ### 2.2 Requisitos por rol, dependencias y orden de implementación
@@ -93,9 +93,9 @@ Medir los conocimientos previos del alumno, cerrar sus vacíos con un tutor que 
 | Rol | Requisitos |
 | --- | --- |
 | Todos | RF-31 inicio de sesión y rol |
-| Administrador (en esta etapa, el profesor) | RF-33 usuarios, roles y matrículas · RF-35 modelo del tutor |
-| Docente | RF-02 subir material a la carpeta · RF-01 clases y ventana del examen · RF-14 modo de feedback · RF-18 temporizador · RF-20 ampliación · RF-34 su pantalla · RF-13, RF-16, RF-22 reporte |
-| Alumno | RF-32 y RF-24–RF-27, RF-29 conectar OpenRouter · RF-19 consulta · RF-11 repreguntar · RF-06, RF-07 rendir el examen · RF-10 revisar errores |
+| Administrador | RF-33 corregir roles y matrículas · RF-35 modelo del tutor |
+| Docente (profesor) | RF-33 registrarse como profesor · RF-02 subir material a su carpeta · RF-01 clases y ventana del examen · RF-14 modo de feedback · RF-18 temporizador · RF-20 ampliación · RF-34 su pantalla · RF-13, RF-16, RF-22 reporte |
+| Alumno | RF-33 registrarse y elegir profesor · RF-32 y RF-24–RF-27, RF-29 conectar OpenRouter · RF-19 consulta · RF-11 repreguntar · RF-06, RF-07 rendir el examen · RF-10 revisar errores |
 | Sistema | RF-03 extraer texto · RF-04, RF-05 generar el examen · RF-08, RF-09 ventana, intentos y nota · RF-12, RF-15 límites del tutor · RF-21 nivel · RF-23 dificultad adaptativa · RF-17, RF-28, RF-30 resiliencia |
 
 **Dependencias.** Una flecha `A --> B` significa "B no funciona sin A":
@@ -124,7 +124,7 @@ Lo que casi todo necesita es saber **quién es el usuario y qué rol tiene** (RF
 
 | Orden | Bloque | Requisitos | Estado |
 | --- | --- | --- | --- |
-| 1 | Acceso e identidad | RF-31, RF-33 | Hecho; falta registrar la aplicación en Microsoft y Google (ClientId/secreto) para usarlo con cuentas reales |
+| 1 | Acceso e identidad | RF-31, RF-33 | Hecho y probado con Google en local (proyecto `tutor-pre-clase`, modo prueba). Falta Microsoft: la cuenta UPC de alumno no puede registrar apps en Entra (403); lo registra TI o una cuenta personal con su propio directorio (skill `configurar-oauth`) |
 | 2 | Material del docente | RF-02, RF-03, RF-01 | Hecho (carpeta sincronizada; reprogramar la fecha de una clase aún no tiene endpoint) |
 | 3 | Conexión del alumno | RF-32, RF-24–RF-27, RF-29 | Hecho |
 | 4 | Tutor en consulta | RF-19, RF-11, RF-12, RF-20 | Hecho |
@@ -324,20 +324,22 @@ flowchart LR
 
 ### 5.0 Inicio de sesión y rol
 
-Todos entran por la misma página (RF-31), con *Entrar con Microsoft* o *Entrar con Google* (la cuenta de la universidad):
+Todos entran por la misma página (RF-31). **Primero eligen el perfil** (*Soy alumno* / *Soy profesor*) y después el proveedor (*Continuar con Google* / *Continuar con Microsoft (Outlook)*):
 
-1. La web pide a la API la URL del proveedor; la API genera `state`, `nonce` y el verificador PKCE y los guarda 10 minutos.
+1. La web pide a la API la URL del proveedor con el perfil elegido (`POST /acceso/{proveedor}/inicio { perfil }`); la API genera `state`, `nonce` y el verificador PKCE y los guarda 10 minutos **junto con el perfil**, que así no viaja por la URL ni se puede alterar al volver.
 2. La persona inicia sesión en Microsoft o Google y vuelve a `/entrar/{proveedor}?code=…&state=…`.
 3. La API canjea el código directamente con el proveedor (por TLS, con su secreto de cliente) y valida el `id_token`: emisor, audiencia, vigencia, `nonce` y, en Google, correo verificado. En Microsoft, si no viene `email`, usa `preferred_username`.
 4. Busca al usuario por ese correo (RF-33):
-   - Correos de `Acceso:Docentes` (el profesor): entran como docente, aunque antes hubieran entrado como alumno, y quedan matriculados en todos los cursos. En esta etapa el docente también gestiona los usuarios (`/admin/*` admite Admin y Docente); en su panel tiene el botón *Usuarios*.
+   - Ya registrado: entra con el perfil elegido. Un **profesor puede entrar como alumno** (la sesión lleva rol Alumno y `vistas: [Docente, Alumno]`): ve el chat, elige profesor —incluido él mismo— y conserva sus propios cursos. Un **alumno que entra como profesor pasa a ser profesor** (y puede seguir entrando como alumno). Un profesor cuya carpeta ya existía quedó registrado por el sincronizador con su correo; al entrar se toma su nombre.
    - Correos de `Acceso:Administradores`: entran como administrador.
-   - Cualquier otro, con `Acceso:RegistroAbierto = true` (lo que viene por defecto): se registra en su primer acceso como **alumno**, sin aprobación de nadie. En cada acceso se le matricula en los cursos que falten, así ve también los que aparecieron después en la carpeta.
+   - Primera vez, con `Acceso:RegistroAbierto = true` (por defecto): como **profesor**, se crea y entra directo; como **alumno**, el canje no crea a nadie y devuelve un **registro pendiente** (token de un solo uso, 10 min) para que elija a su profesor de la lista (`GET /acceso/profesores`, con los cursos de cada uno); `POST /acceso/registro` crea al usuario y emite la sesión. Nadie puede elegirse administrador.
    - Con el registro cerrado, quien no está registrado no entra (403 `no_registrado`).
+
+   Las matrículas se derivan del profesor: el profesor está en los cursos de su carpeta y el alumno, exactamente en los cursos de su profesor. Si el alumno cambia de profesor (`PUT /alumno/profesor`), deja de ver los del anterior (sus intentos se conservan); si el profesor añade un curso a su carpeta, la siguiente sincronización matricula a todos sus alumnos.
 5. La API emite su propia sesión (JWT firmado por ella, 12 h) con el rol que el usuario tiene **en la plataforma**, no en el proveedor. La web la envía como `Authorization: Bearer` y lleva a cada rol a su pantalla: el alumno al chat, el docente a su panel y el administrador a la gestión de usuarios.
 6. **Alumno sin OpenRouter (RF-32):** tras entrar, la web lo lleva directo a autorizar OpenRouter (§5.1) y vuelve al chat listo. Si cancela, no se le reenvía en bucle: queda el botón para hacerlo cuando quiera. La primera vez OpenRouter pide consentimiento (y crear la cuenta, que puede hacer con el mismo Google); después basta con un clic.
 
-Fuera de producción la página ofrece además "Entrar como usuario de prueba", que emite la misma sesión sin pasar por un proveedor.
+La página solo ofrece OAuth: un botón *Continuar con Google* y otro *Continuar con Microsoft (Outlook)*. Microsoft usa el punto de entrada `common`, así que acepta tanto cuentas personales (Outlook.com, Hotmail) como de organización. Un botón cuyo proveedor aún no tiene `ClientId` avisa que no está configurado. Fuera de producción, la API mantiene `/acceso/desarrollo` para las pruebas automáticas y por `curl`, pero la web no lo muestra.
 
 ### 5.1 Conexión del agente
 
@@ -515,20 +517,21 @@ Cada clase tiene su propia carpeta de contenido, y el agente recibe únicamente 
 
 ### 6.1 Ingesta de la carpeta
 
-El docente no usa ningún formulario: **copia el material en la carpeta de contenido** (una carpeta compartida; en local, `course-content/` del repositorio) y la plataforma hace el resto. La estructura es:
+El docente no usa ningún formulario: **copia el material en su carpeta dentro de la carpeta de contenido** (una carpeta compartida; en local, `course-content/` del repositorio) y la plataforma hace el resto. Cada profesor tiene la suya, con su correo como nombre, y administra ahí sus cursos. La estructura es:
 
 ```text
 course-content/
-  MFEP - Finanzas empresariales/        ← curso: "CÓDIGO - Nombre"
-    M1 - Estados financieros/           ← clase: el nombre es el título; el primer número, el orden
-      M1 Estados Financieros.pdf
-      MDSTI_MFEP_M1_INFOGRAFÍA_Costo vs Gasto….pdf
-    M4 - Capital de trabajo neto/
-      MDSTI_MFEP_M4_Anexo EVC.xlsx
-      …
+  alonso.uchida@gmail.com/                ← profesor: su correo (el mismo con el que entra)
+    MFEP - Finanzas empresariales/        ← curso: "CÓDIGO - Nombre"
+      M1 - Estados financieros/           ← clase: el nombre es el título; el primer número, el orden
+        M1 Estados Financieros.pdf
+        MDSTI_MFEP_M1_INFOGRAFÍA_Costo vs Gasto….pdf
+      M4 - Capital de trabajo neto/
+        MDSTI_MFEP_M4_Anexo EVC.xlsx
+        …
 ```
 
-1. `SincronizadorCarpeta` revisa la carpeta al arrancar y cada 30 segundos. Un curso o una clase que aún no existe se crea (la clase, una por semana a las 19:00 de la universidad; el docente la reprograma después).
+1. `SincronizadorCarpeta` revisa la carpeta al arrancar y cada 30 segundos. Una carpeta de primer nivel que no es un correo se omite (con aviso en el log). Un profesor que aún no existe se registra como docente con su correo; un curso o una clase que aún no existe se crea (el curso, a nombre del profesor de la carpeta; la clase, una por semana a las 19:00 de la universidad; el docente la reprograma después). Luego se alinean las matrículas del curso: el profesor y todos los alumnos que lo eligieron.
 2. Por cada archivo admitido calcula el SHA-256: si no cambió, no hace nada; si es nuevo o cambió, lo guarda en Blob Storage con ruta `cursos/{cursoId}/clases/{claseId}/{archivo}` y reemplaza la versión anterior. Se ignoran los temporales de Office (`~$…`), los ocultos y los formatos no admitidos.
 3. Lo que el docente quita de la carpeta se retira de la clase. Las clases nunca se borran desde la carpeta, porque de ellas cuelgan exámenes e intentos.
 4. Por cada archivo nuevo se publica el evento `ExtraerTexto { archivoId }`; el archivo queda en estado *Pendiente*.
@@ -641,9 +644,12 @@ API versionada bajo `/api/v1`, autenticada con la sesión que emite la propia AP
 | PUT | /clases/{claseId}/ampliacion | Docente | Activa o desactiva la ampliación del tutor en la clase (RF-20) |
 | POST | /examenes/{examenId}/publicar | Docente | Publica el examen (los de la carpeta ya nacen publicados) |
 | GET | /acceso/proveedores | Público | Proveedores de inicio de sesión configurados (Microsoft, Google) |
-| POST | /acceso/{proveedor}/inicio | Público | URL de autorización con `state`, `nonce` y PKCE (RF-31) |
-| POST | /acceso/{proveedor}/canje | Público | Canjea `{ code, state }` y devuelve la sesión con el rol; 403 `no_registrado` si el correo no está dado de alta |
-| GET | /acceso/yo | Cualquiera | Usuario de la sesión actual |
+| POST | /acceso/{proveedor}/inicio | Público | `{ perfil: Alumno\|Docente }` → URL de autorización con `state`, `nonce` y PKCE; el perfil queda en el servidor ligado al `state` (RF-31) |
+| POST | /acceso/{proveedor}/canje | Público | Canjea `{ code, state }`: devuelve `{ sesion }` si ya está registrado o `{ registro }` (primer acceso, falta elegir rol); 403 `no_registrado` con el registro cerrado |
+| POST | /acceso/registro | Público (con token de registro) | `{ token, rol: Alumno\|Docente, profesorId? }`: crea al usuario con el rol elegido y devuelve la sesión (RF-33) |
+| GET | /acceso/profesores | Con token de registro o con sesión | Profesores con sus cursos, para que el alumno elija |
+| GET · PUT | /alumno/profesor | Alumno | Su profesor; cambiarlo lo deja solo en los cursos del nuevo |
+| GET | /acceso/yo | Cualquiera | Usuario de la sesión actual: `rol` con el que actúa y `vistas` con las que puede entrar |
 | GET · POST | /acceso/desarrollo/usuarios · /acceso/desarrollo | Público, **solo fuera de producción** | Usuarios de prueba y sesión sin proveedor |
 | GET | /admin/usuarios · /admin/cursos | Admin | Usuarios con rol y cursos; cursos disponibles (RF-33) |
 | PUT | /admin/usuarios | Admin | Alta o edición por correo, con rol y cursos |
@@ -722,7 +728,8 @@ Todos entran por la misma página y cada rol tiene **una sola pantalla**: el alu
 
 | Pantalla | Rol | Contenido principal |
 | --- | --- | --- |
-| Entrada | Todos | Franja roja UPC, *Entrar con Microsoft* y *Entrar con Google*; lleva a cada rol a su pantalla |
+| Entrada | Todos | Franja roja UPC; primero *Soy alumno* / *Soy profesor*, luego *Continuar con Google* / *Continuar con Microsoft (Outlook)*; lleva a cada rol a su pantalla |
+| Tu profesor | Alumno | Lista de profesores con sus cursos para elegir o cambiar; se abre desde *Cambiar* en la barra lateral del chat o si aún no tiene profesor |
 | Administración | Admin | Alta o edición de una persona (correo, nombre, rol, cursos), alta por lista y tabla de usuarios registrados |
 | Chat del tutor | Alumno | Lista lateral de clases (con estado del examen y cuenta regresiva) y el chat en streaming. En la cabecera: clase, modo (Consulta / Examen / Revisión) y, durante el examen, progreso y temporizador; con un solo agente no hay selector. En el cuerpo: mensajes, chips de fuente que abren el archivo en la página citada y bloques de ampliación con estilo diferenciado. Aviso cuando el docente actualiza el material (§6.1). Si no tiene la cuenta conectada, el chat muestra en su lugar el panel de conexión |
 | Conectar mi tutor | Alumno | Panel dentro del chat con un solo botón, *Conectar con OpenRouter (gratis)*, y una línea que explica que es gratis, que puede crear la cuenta con su Google y que no tiene que copiar ninguna clave. Ya conectado: últimos 4 y estado, con *Volver a entrar* y *Desconectar* |
@@ -748,6 +755,8 @@ La web nunca ve ni guarda la clave: la ruta `/conectar/openrouter` toma el `code
 
 - Inicio de sesión: OIDC con código y PKCE, canje en el servidor con el secreto de cliente, validación del `id_token` (emisor, audiencia, vigencia, `nonce`; en Google, correo verificado) y `state` de un solo uso. El rol no viene del proveedor: lo asigna el administrador en la plataforma, y un correo no registrado no entra (403 `no_registrado`).
 - La sesión es un JWT firmado por la API (12 h). En producción la clave de firma es obligatoria (`Acceso:ClaveSesion`, desde el almacén de secretos); en desarrollo se genera al arrancar, así que reiniciar la API cierra las sesiones. La entrada de prueba y las cabeceras `X-Usuario-Id`/`X-Usuario-Rol` solo existen fuera de producción.
+- Credenciales OAuth (ClientId y secreto de Google y Microsoft): nunca en el repo ni en la configuración versionada. En local, en `secrets/` (ignorada por git y montada en solo lectura; la API la lee con `Acceso:CarpetaSecretos`: el JSON que descarga Google y `microsoft.json`) o en `tutor.env` (también ignorado); en producción, en el almacén de secretos. La API no registra sus valores.
+- Cada profesor administra solo el contenido de sus cursos: los endpoints del docente comprueban que la clase sea de un curso suyo (403 si no); el administrador ve todos.
 - Autorización por recurso: un alumno solo accede a su propia conversación y a sus intentos, y solo en clases de cursos donde está matriculado.
 - El alumno nunca habla directo con el proveedor: todo pasa por nuestra API, que decide qué herramientas y datos ve el agente en cada estado.
 - Las respuestas correctas y justificaciones solo entran al contexto del agente después de registrar (modo Inmediato) o de enviar (modo Al final).
@@ -773,7 +782,7 @@ La web nunca ve ni guarda la clave: la ruta `/conectar/openrouter` toma el `code
 | Límites del tutor | Preguntas ajenas al curso, ampliación con la clase en `ampliacion_permitida = false`, ampliación durante el examen, citas inventadas | Suite de casos negativos con verificación del corte en servidor |
 | Nivel | Cálculo del nivel por rangos de nota, corrección manual del docente, persistencia de temas débiles | xUnit |
 | Credenciales | Cifrado en reposo, la API nunca devuelve la clave ni acepta una pegada, un alumno no alcanza la de otro, credencial inválida marcada y reconectable, 429 no la invalida | xUnit + pruebas de API |
-| Acceso | Validación del `id_token` (emisor, audiencia, vencido, `nonce`, correo sin verificar), `state` repetido, registro abierto (alumno de todos los cursos) y cerrado (`no_registrado`), profesor y administrador por configuración, sesión con rol correcto | xUnit + pruebas de API con el proveedor simulado |
+| Acceso | Validación del `id_token` (emisor, audiencia, vencido, `nonce`, correo sin verificar), `state` repetido, primer acceso sin crear a nadie hasta elegir rol, alumno solo en los cursos de su profesor, profesor inválido, registro de un solo uso, nadie se elige administrador, registro cerrado (`no_registrado`), administrador por configuración, cada profesor solo sus cursos (403 al ajeno), cambio de profesor, sesión con rol correcto | xUnit + pruebas de API con el proveedor simulado |
 | OAuth OpenRouter | Canje con verificador correcto, código de otro alumno, código repetido o vencido, clave obtenida que el proveedor rechaza; OpenRouter simulado | xUnit + WireMock |
 | E2E | Entrar con cada rol, conectar la cuenta (RF-32), abrir el chat, consultar el tema, rendir examen por chat y revisar fallos | Playwright |
 | Carga | 30 alumnos conversando en el mismo minuto | k6 |

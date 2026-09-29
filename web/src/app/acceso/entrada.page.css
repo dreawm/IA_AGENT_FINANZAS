@@ -53,6 +53,52 @@ h1 {
   font-size: var(--t-lectura);
 }
 
+.roles {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.rol-opcion {
+  display: grid;
+  gap: 0.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--pauta);
+  border-radius: 6px;
+  background: var(--papel);
+  color: var(--tinta);
+  text-align: left;
+  cursor: pointer;
+}
+
+.rol-opcion:hover:not(:disabled) {
+  border-color: var(--upc);
+  box-shadow: inset 3px 0 0 var(--upc);
+}
+
+.rol-opcion strong {
+  font-family: var(--serif);
+  font-size: var(--t-lectura);
+}
+
+.rol-opcion span {
+  font-size: var(--t-pequeno);
+  color: var(--grafito);
+}
+
+.perfil-elegido {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+}
+
+.acciones-registro {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
 .ayuda {
   margin: 0;
   font-size: var(--t-pequeno);

@@ -21,7 +21,8 @@ public static class EndpointsDocente
     public static void MapearDocente(this IEndpointRouteBuilder app)
     {
         var grupo = app.MapGroup("/api/v1")
-            .RequireAuthorization(p => p.RequireRole(Roles.Docente, Roles.Admin));
+            .RequireAuthorization(p => p.RequireRole(Roles.Docente, Roles.Admin))
+            .AddEndpointFilter(SoloSusCursos);
 
         grupo.MapPost("/cursos/{cursoId:guid}/clases", async (
             Guid cursoId, CrearClasePeticion peticion, IAppDbContext db, CancellationToken ct) =>
@@ -181,5 +182,34 @@ public static class EndpointsDocente
 
             return Results.Ok(new { nivel = registro.Nivel.ToString(), origen = registro.Origen.ToString() });
         });
+    }
+
+    /// <summary>
+    /// Cada profesor administra solo el contenido de sus cursos (RF-34): el curso se deduce
+    /// del recurso de la ruta. El administrador ve todos.
+    /// </summary>
+    private static async ValueTask<object?> SoloSusCursos(EndpointFilterInvocationContext contexto, EndpointFilterDelegate siguiente)
+    {
+        var http = contexto.HttpContext;
+        if (http.User.IsInRole(Roles.Admin)) return await siguiente(contexto);
+
+        var db = http.RequestServices.GetRequiredService<IAppDbContext>();
+        var ruta = http.Request.RouteValues;
+        var ct = http.RequestAborted;
+
+        Guid? Id(string nombre) => Guid.TryParse(ruta[nombre]?.ToString(), out var id) ? id : null;
+
+        Guid? cursoId = Id("cursoId");
+        if (Id("claseId") is Guid claseId)
+            cursoId = await db.Clases.Where(c => c.Id == claseId).Select(c => (Guid?)c.CursoId).FirstOrDefaultAsync(ct);
+        else if (Id("examenId") is Guid examenId)
+            cursoId = await db.Examenes.Where(e => e.Id == examenId).Select(e => (Guid?)e.Clase!.CursoId).FirstOrDefaultAsync(ct);
+        else if (Id("archivoId") is Guid archivoId)
+            cursoId = await db.Archivos.Where(a => a.Id == archivoId).Select(a => (Guid?)a.Clase!.CursoId).FirstOrDefaultAsync(ct);
+
+        if (cursoId is null) return Results.NotFound();
+
+        var propio = await db.Cursos.AnyAsync(c => c.Id == cursoId && c.DocenteId == http.User.Id(), ct);
+        return propio ? await siguiente(contexto) : Results.Forbid();
     }
 }

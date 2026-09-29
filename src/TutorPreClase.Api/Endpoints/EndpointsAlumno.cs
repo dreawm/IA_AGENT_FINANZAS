@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using TutorPreClase.Api.Seguridad;
 using TutorPreClase.Api.Sse;
 using TutorPreClase.Application.Abstracciones;
+using TutorPreClase.Application.Academico;
 using TutorPreClase.Application.Evaluacion;
 using TutorPreClase.Application.Llm;
 using TutorPreClase.Application.Tutor;
@@ -16,6 +17,7 @@ namespace TutorPreClase.Api.Endpoints;
 public sealed record AbrirConversacionPeticion(string AgenteId);
 public sealed record MensajePeticion(string Texto);
 public sealed record CambiarAgentePeticion(string AgenteId);
+public sealed record ElegirProfesorPeticion(Guid? ProfesorId);
 
 public static class EndpointsAlumno
 {
@@ -83,6 +85,30 @@ public static class EndpointsAlumno
 
             return Results.Ok(clases);
         });
+
+        // El alumno ve solo los cursos del profesor que eligio (RF-33) y puede cambiarlo.
+        grupo.MapGet("/alumno/profesor", async (HttpContext http, IAppDbContext db, CancellationToken ct) =>
+        {
+            var profesorId = await db.Usuarios.Where(u => u.Id == http.User.Id()).Select(u => u.ProfesorId).FirstOrDefaultAsync(ct);
+            var profesor = profesorId is null ? null
+                : await db.Usuarios.AsNoTracking().Where(u => u.Id == profesorId)
+                    .Select(u => new { id = u.Id, nombre = u.Nombre }).FirstOrDefaultAsync(ct);
+
+            return Results.Ok(new { profesor });
+        }).RequireAuthorization(p => p.RequireRole(Roles.Alumno));
+
+        grupo.MapPut("/alumno/profesor", async (
+            HttpContext http, ElegirProfesorPeticion peticion, ConexionIdentidad identidad, IAppDbContext db, CancellationToken ct) =>
+        {
+            await identidad.ValidarProfesorAsync(peticion.ProfesorId, ct);
+
+            var alumno = await db.Usuarios.FirstAsync(u => u.Id == http.User.Id(), ct);
+            alumno.ProfesorId = peticion.ProfesorId;
+            await MatriculasPorProfesor.AlinearAlumnoAsync(db, alumno, ct);
+            await db.SaveChangesAsync(ct);
+
+            return Results.Ok(new { profesorId = alumno.ProfesorId });
+        }).RequireAuthorization(p => p.RequireRole(Roles.Alumno));
 
         // La web escucha aqui y se actualiza solo cuando el docente cambia el material de
         // un curso del alumno (SDD §6.1). El latido mantiene viva la conexion en proxies.

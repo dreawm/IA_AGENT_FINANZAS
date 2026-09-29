@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TutorPreClase.Application.Abstracciones;
+using TutorPreClase.Application.Academico;
 using TutorPreClase.Domain.Entidades;
 
 namespace TutorPreClase.Infrastructure.Contenido;
@@ -37,11 +38,19 @@ public interface ISincronizadorCarpeta
 }
 
 /// <summary>
-/// Convencion de nombres de la carpeta del docente:
-/// <c>{raiz}/{CODIGO - Nombre del curso}/{N - Titulo de la clase}/archivos</c>.
+/// Convencion de nombres de la carpeta de contenido:
+/// <c>{raiz}/{correo del profesor}/{CODIGO - Nombre del curso}/{N - Titulo de la clase}/archivos</c>.
 /// </summary>
 public static partial class NombresCarpeta
 {
+    /// <summary>La carpeta de primer nivel es el correo del profesor dueño de sus cursos.</summary>
+    public static string? Profesor(string carpeta)
+    {
+        var correo = carpeta.Trim().ToLowerInvariant();
+        var arroba = correo.IndexOf('@');
+        return arroba > 0 && arroba < correo.Length - 1 && !correo.Contains(' ') ? correo : null;
+    }
+
     public static (string Codigo, string Nombre) Curso(string carpeta)
     {
         var partes = carpeta.Split(" - ", 2, StringSplitOptions.TrimEntries);
@@ -66,10 +75,11 @@ public static partial class NombresCarpeta
 }
 
 /// <summary>
-/// La carpeta de contenido es el canal del docente (SDD §6.1): lo que pone en ella llega a
-/// la clase y lo que quita desaparece. Un archivo sin cambios no se vuelve a extraer
-/// (mismo SHA-256); uno modificado se reemplaza. Las clases no se borran nunca desde aqui,
-/// porque cuelgan de ellas examenes e intentos.
+/// La carpeta de contenido es el canal del docente (SDD §6.1): cada profesor tiene la suya
+/// (su correo) y administra ahi sus cursos. Lo que pone llega a la clase y lo que quita
+/// desaparece. Un archivo sin cambios no se vuelve a extraer (mismo SHA-256); uno
+/// modificado se reemplaza. Las clases no se borran nunca desde aqui, porque cuelgan de
+/// ellas examenes e intentos.
 /// </summary>
 public sealed class SincronizadorCarpeta(
     IAppDbContext db,
@@ -95,27 +105,44 @@ public sealed class SincronizadorCarpeta(
 
         int cursos = 0, clases = 0, nuevos = 0, eliminados = 0;
 
-        foreach (var carpetaCurso in Subcarpetas(raiz))
+        foreach (var carpetaProfesor in Subcarpetas(raiz))
         {
-            cursos++;
-            var curso = await CursoAsync(Path.GetFileName(carpetaCurso), ct);
-            var cambiadas = new List<Guid>();
-
-            var carpetasClase = Subcarpetas(carpetaCurso);
-            for (var i = 0; i < carpetasClase.Count; i++)
+            var correo = NombresCarpeta.Profesor(Path.GetFileName(carpetaProfesor));
+            if (correo is null)
             {
-                clases++;
-                var (clase, claseNueva) = await ClaseAsync(curso, Path.GetFileName(carpetasClase[i]), i + 1, ct);
-                var examenNuevo = await AsegurarExamenAsync(clase, ct);
-                var (n, e) = await ArchivosAsync(curso, clase, carpetasClase[i], ct);
-                nuevos += n;
-                eliminados += e;
-
-                if (claseNueva || examenNuevo || n > 0 || e > 0) cambiadas.Add(clase.Id);
+                log.LogWarning("Se omite {Carpeta}: el primer nivel debe ser el correo del profesor " +
+                               "(course-content/<correo>/<CÓDIGO - Curso>/<Clase>)", Path.GetFileName(carpetaProfesor));
+                continue;
             }
 
-            // Solo si el docente cambio algo: una pasada sin cambios no molesta a nadie.
-            if (cambiadas.Count > 0) avisos.Publicar(new CambioContenido(curso.Id, cambiadas));
+            var profesor = await ProfesorAsync(correo, ct);
+
+            foreach (var carpetaCurso in Subcarpetas(carpetaProfesor))
+            {
+                cursos++;
+                var curso = await CursoAsync(Path.GetFileName(carpetaCurso), profesor, ct);
+
+                // El profesor y sus alumnos, tambien en los cursos que aparecen despues.
+                await MatriculasPorProfesor.AlinearCursoAsync(db, curso, ct);
+                await db.SaveChangesAsync(ct);
+
+                var cambiadas = new List<Guid>();
+                var carpetasClase = Subcarpetas(carpetaCurso);
+                for (var i = 0; i < carpetasClase.Count; i++)
+                {
+                    clases++;
+                    var (clase, claseNueva) = await ClaseAsync(curso, Path.GetFileName(carpetasClase[i]), i + 1, ct);
+                    var examenNuevo = await AsegurarExamenAsync(clase, ct);
+                    var (n, e) = await ArchivosAsync(curso, clase, carpetasClase[i], ct);
+                    nuevos += n;
+                    eliminados += e;
+
+                    if (claseNueva || examenNuevo || n > 0 || e > 0) cambiadas.Add(clase.Id);
+                }
+
+                // Solo si el docente cambio algo: una pasada sin cambios no molesta a nadie.
+                if (cambiadas.Count > 0) avisos.Publicar(new CambioContenido(curso.Id, cambiadas));
+            }
         }
 
         var resumen = new ResumenSincronizacion(cursos, clases, nuevos, eliminados);
@@ -132,18 +159,43 @@ public sealed class SincronizadorCarpeta(
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    private async Task<Curso> CursoAsync(string carpeta, CancellationToken ct)
+    /// <summary>
+    /// El profesor puede tener su carpeta antes de haber entrado nunca: se le registra como
+    /// docente con su correo y, cuando entre con Google o Microsoft, ya encuentra sus cursos.
+    /// </summary>
+    private async Task<Usuario> ProfesorAsync(string correo, CancellationToken ct)
+    {
+        var profesor = await db.Usuarios.FirstOrDefaultAsync(u => u.Email == correo, ct);
+        if (profesor is not null) return profesor;
+
+        profesor = new Usuario { Email = correo, Nombre = correo, Rol = RolUsuario.Docente };
+        db.Usuarios.Add(profesor);
+        await db.SaveChangesAsync(ct);
+
+        log.LogInformation("Profesor {Correo} registrado desde su carpeta de contenido", correo);
+        return profesor;
+    }
+
+    private async Task<Curso> CursoAsync(string carpeta, Usuario profesor, CancellationToken ct)
     {
         var (codigo, nombre) = NombresCarpeta.Curso(carpeta);
 
-        var curso = await db.Cursos.FirstOrDefaultAsync(c => c.Codigo == codigo, ct);
-        if (curso is not null) return curso;
+        // Dos profesores pueden usar el mismo codigo. Un curso sin dueño con ese codigo
+        // (creado antes de que hubiera carpetas por profesor) se asigna a quien lo tiene ahora.
+        var curso = await db.Cursos.FirstOrDefaultAsync(c => c.Codigo == codigo && c.DocenteId == profesor.Id, ct)
+                    ?? await db.Cursos.FirstOrDefaultAsync(c => c.Codigo == codigo && c.DocenteId == null, ct);
 
-        curso = new Curso { Codigo = codigo, Nombre = nombre, Periodo = opciones.Value.Periodo };
+        if (curso is not null)
+        {
+            curso.DocenteId ??= profesor.Id;
+            return curso;
+        }
+
+        curso = new Curso { Codigo = codigo, Nombre = nombre, Periodo = opciones.Value.Periodo, DocenteId = profesor.Id };
         db.Cursos.Add(curso);
         await db.SaveChangesAsync(ct);
 
-        log.LogInformation("Curso {Codigo} creado desde la carpeta de contenido", codigo);
+        log.LogInformation("Curso {Codigo} de {Profesor} creado desde la carpeta de contenido", codigo, profesor.Email);
         return curso;
     }
 
