@@ -7,7 +7,11 @@ namespace TutorPreClase.Application.Reportes;
 
 public sealed record NivelDeAlumno(Guid AlumnoId, string Nombre, string Nivel, IReadOnlyList<string> TemasDebiles, string Origen);
 
-public sealed record PreguntaFallada(Guid PreguntaId, string Enunciado, string Tema, int Fallos, string AlternativaMasElegida);
+/// <summary>
+/// Cada alumno rinde preguntas propias generadas por la IA (RF-04), asi que lo comparable
+/// entre alumnos es el tema, no la pregunta.
+/// </summary>
+public sealed record TemaFallado(string Tema, int Fallos, int Respondidas, int PorcentajeFallo);
 
 public sealed record DudaReportada(string Texto, string? Tema, bool ConAmpliacion, DateTimeOffset CreadoEn);
 
@@ -21,7 +25,7 @@ public sealed record ReporteClase(
     IReadOnlyDictionary<string, int> DistribucionNotas,
     IReadOnlyDictionary<string, int> DistribucionNiveles,
     IReadOnlyList<NivelDeAlumno> Niveles,
-    IReadOnlyList<PreguntaFallada> PreguntasMasFalladas,
+    IReadOnlyList<TemaFallado> TemasMasFallados,
     IReadOnlyList<string> TemasDebilesDelGrupo,
     IReadOnlyList<DudaReportada> DudasFueraDelMaterial,
     IReadOnlyList<UsoAgente> UsoPorAgente);
@@ -89,7 +93,7 @@ public sealed class ServicioReporte(IAppDbContext db) : IServicioReporte
                 .GroupBy(n => n.Nivel.ToString())
                 .ToDictionary(g => g.Key, g => g.Count()),
             Niveles: nivelesDto,
-            PreguntasMasFalladas: PreguntasFalladas(examen, intentos),
+            TemasMasFallados: TemasFallados(examen, intentos),
             TemasDebilesDelGrupo: nivelesDto
                 .SelectMany(n => n.TemasDebiles)
                 .GroupBy(t => t, StringComparer.OrdinalIgnoreCase)
@@ -129,37 +133,23 @@ public sealed class ServicioReporte(IAppDbContext db) : IServicioReporte
         return tramos;
     }
 
-    private static List<PreguntaFallada> PreguntasFalladas(Examen? examen, List<Intento> intentos)
+    private static List<TemaFallado> TemasFallados(Examen? examen, List<Intento> intentos)
     {
         if (examen is null) return [];
 
-        var fallosPorPregunta = intentos
+        var temaDe = examen.Preguntas.ToDictionary(p => p.Id, p => p.Tema);
+
+        return intentos
             .SelectMany(i => i.Respuestas)
-            .Where(r => !r.EsCorrecta)
-            .GroupBy(r => r.PreguntaId);
-
-        var resultado = new List<PreguntaFallada>();
-
-        foreach (var grupo in fallosPorPregunta)
-        {
-            var pregunta = examen.Preguntas.FirstOrDefault(p => p.Id == grupo.Key);
-            if (pregunta is null) continue;
-
-            var masElegida = grupo
-                .GroupBy(r => r.AlternativaId)
-                .OrderByDescending(g => g.Count())
-                .First().Key;
-
-            var alternativa = pregunta.Alternativas.FirstOrDefault(a => a.Id == masElegida);
-
-            resultado.Add(new PreguntaFallada(
-                pregunta.Id,
-                pregunta.Enunciado,
-                pregunta.Tema,
-                grupo.Count(),
-                alternativa is null ? "(desconocida)" : alternativa.Letra + ". " + alternativa.Texto));
-        }
-
-        return resultado.OrderByDescending(p => p.Fallos).ToList();
+            .GroupBy(r => temaDe.GetValueOrDefault(r.PreguntaId, "(sin tema)"), StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var fallos = g.Count(r => !r.EsCorrecta);
+                return new TemaFallado(g.Key, fallos, g.Count(), (int)Math.Round(100m * fallos / g.Count()));
+            })
+            .Where(t => t.Fallos > 0)
+            .OrderByDescending(t => t.PorcentajeFallo)
+            .ThenByDescending(t => t.Fallos)
+            .ToList();
     }
 }

@@ -8,7 +8,14 @@ namespace TutorPreClase.Application.Evaluacion;
 
 public interface IServicioExamen
 {
-    Task<Intento> IniciarIntentoAsync(Guid claseId, Guid alumnoId, string agenteId, string modelo, CancellationToken ct = default);
+    /// <summary>
+    /// Valida ventana e intentos y solo entonces pide las preguntas a <paramref name="generar"/>
+    /// (la IA, RF-04). Si la generacion falla, el intento no se crea ni se consume.
+    /// </summary>
+    Task<Intento> IniciarIntentoAsync(
+        Guid claseId, Guid alumnoId, string agenteId, string modelo,
+        Func<Examen, CancellationToken, Task<IReadOnlyList<Pregunta>>> generar,
+        CancellationToken ct = default);
     Task<PreguntaDto?> SiguientePreguntaAsync(Guid intentoId, CancellationToken ct = default);
     Task<RegistroRespuestaDto> RegistrarRespuestaAsync(Guid intentoId, Guid preguntaId, string letra, string textoOriginal, CancellationToken ct = default);
     Task<ProgresoDto> ProgresoAsync(Guid intentoId, CancellationToken ct = default);
@@ -23,7 +30,9 @@ public interface IServicioExamen
 public sealed class ServicioExamen(IAppDbContext db, IRelojSistema reloj, INivelService nivel) : IServicioExamen
 {
     public async Task<Intento> IniciarIntentoAsync(
-        Guid claseId, Guid alumnoId, string agenteId, string modelo, CancellationToken ct = default)
+        Guid claseId, Guid alumnoId, string agenteId, string modelo,
+        Func<Examen, CancellationToken, Task<IReadOnlyList<Pregunta>>> generar,
+        CancellationToken ct = default)
     {
         var examen = await CargarExamenPorClaseAsync(claseId, ct)
             ?? throw new ExamenException("sin_examen", "La clase no tiene examen publicado.");
@@ -36,6 +45,8 @@ public sealed class ServicioExamen(IAppDbContext db, IRelojSistema reloj, INivel
         if (!validacion.Permitido)
             throw new ExamenException(validacion.Motivo.ToString(), MensajeDe(validacion.Motivo));
 
+        var preguntas = await generar(examen, ct);
+
         var intento = new Intento
         {
             ExamenId = examen.Id,
@@ -47,6 +58,14 @@ public sealed class ServicioExamen(IAppDbContext db, IRelojSistema reloj, INivel
         };
 
         db.Intentos.Add(intento);
+
+        foreach (var pregunta in preguntas)
+        {
+            pregunta.ExamenId = examen.Id;
+            pregunta.IntentoId = intento.Id;
+            db.Preguntas.Add(pregunta);
+        }
+
         await db.SaveChangesAsync(ct);
         return intento;
     }
@@ -56,7 +75,7 @@ public sealed class ServicioExamen(IAppDbContext db, IRelojSistema reloj, INivel
         var (examen, intento) = await CargarAsync(intentoId, ct);
 
         var respondidas = intento.Respuestas.Select(r => r.PreguntaId).ToHashSet();
-        var aprobadas = PreguntasVigentes(examen);
+        var aprobadas = PreguntasVigentes(examen, intento);
 
         var siguiente = aprobadas.FirstOrDefault(p => !respondidas.Contains(p.Id));
         if (siguiente is null) return null;
@@ -102,7 +121,7 @@ public sealed class ServicioExamen(IAppDbContext db, IRelojSistema reloj, INivel
         db.Respuestas.Add(respuesta);
         await db.SaveChangesAsync(ct);
 
-        var quedan = PreguntasVigentes(examen).Count > intento.Respuestas.Count;
+        var quedan = PreguntasVigentes(examen, intento).Count > intento.Respuestas.Count;
 
         // En modo AlFinal el agente no recibe la corrección: solo "registrada" (RF-15).
         return examen.ModoFeedback == ModoFeedback.Inmediato
@@ -116,7 +135,7 @@ public sealed class ServicioExamen(IAppDbContext db, IRelojSistema reloj, INivel
 
         return new ProgresoDto(
             intento.Respuestas.Count,
-            PreguntasVigentes(examen).Count,
+            PreguntasVigentes(examen, intento).Count,
             ReglasExamen.SegundosRestantes(examen, intento, reloj.Ahora));
     }
 
@@ -126,7 +145,7 @@ public sealed class ServicioExamen(IAppDbContext db, IRelojSistema reloj, INivel
 
         if (intento.Estado == EstadoIntento.EnCurso)
         {
-            var total = PreguntasVigentes(examen).Count;
+            var total = PreguntasVigentes(examen, intento).Count;
             var correctas = intento.Respuestas.Count(r => r.EsCorrecta);
 
             intento.Puntaje = Calificacion.Nota(correctas, total);
@@ -151,13 +170,13 @@ public sealed class ServicioExamen(IAppDbContext db, IRelojSistema reloj, INivel
         return Armar(examen, intento);
     }
 
-    /// <summary>Solo entran al examen las preguntas aprobadas por el docente (RF-04).</summary>
-    private static List<Pregunta> PreguntasVigentes(Examen examen) =>
-        examen.Preguntas.Where(p => p.Aprobada).OrderBy(p => p.Orden).ToList();
+    /// <summary>Las preguntas que la IA genero para este intento (RF-04).</summary>
+    private static List<Pregunta> PreguntasVigentes(Examen examen, Intento intento) =>
+        examen.Preguntas.Where(p => p.IntentoId == intento.Id).OrderBy(p => p.Orden).ToList();
 
     private static ResultadoDto Armar(Examen examen, Intento intento)
     {
-        var total = PreguntasVigentes(examen).Count;
+        var total = PreguntasVigentes(examen, intento).Count;
         var correctas = intento.Respuestas.Count(r => r.EsCorrecta);
 
         var fallos = intento.Respuestas
@@ -194,17 +213,16 @@ public sealed class ServicioExamen(IAppDbContext db, IRelojSistema reloj, INivel
             .FirstOrDefaultAsync(i => i.Id == intentoId, ct)
             ?? throw new ExamenException("intento_no_encontrado", "No existe el intento.");
 
+        // Solo las preguntas de este intento: las de otros alumnos no hacen falta.
         var examen = await db.Examenes
-            .Include(e => e.Preguntas).ThenInclude(p => p.Alternativas)
+            .Include(e => e.Preguntas.Where(p => p.IntentoId == intentoId)).ThenInclude(p => p.Alternativas)
             .FirstAsync(e => e.Id == intento.ExamenId, ct);
 
         return (examen, intento);
     }
 
     private Task<Examen?> CargarExamenPorClaseAsync(Guid claseId, CancellationToken ct) =>
-        db.Examenes
-            .Include(e => e.Preguntas).ThenInclude(p => p.Alternativas)
-            .FirstOrDefaultAsync(e => e.ClaseId == claseId, ct);
+        db.Examenes.FirstOrDefaultAsync(e => e.ClaseId == claseId, ct);
 
     private static string MensajeDe(MotivoRechazo motivo) => motivo switch
     {

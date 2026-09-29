@@ -40,8 +40,11 @@ public class Clase
     public DateTimeOffset Inicio { get; set; }
     public int Orden { get; set; }
 
-    /// <summary>RF-20: el docente decide si el tutor puede ampliar fuera del material.</summary>
-    public bool AmpliacionPermitida { get; set; } = true;
+    /// <summary>
+    /// RF-20: el docente decide si el tutor puede ampliar fuera del material. Por defecto
+    /// no: el tutor se limita al contenido de la clase.
+    /// </summary>
+    public bool AmpliacionPermitida { get; set; }
 
     public List<ArchivoContenido> Archivos { get; set; } = [];
     public Examen? Examen { get; set; }

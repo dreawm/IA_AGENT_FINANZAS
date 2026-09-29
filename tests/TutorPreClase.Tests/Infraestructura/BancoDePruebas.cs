@@ -31,7 +31,7 @@ public sealed class ValidadorSiempreOk : IValidadorCredencial
 }
 
 /// <summary>Proveedor de prueba: devuelve un guion de eventos, sin salir a la red.</summary>
-public sealed class ProveedorGuionado(string id = "claude") : ILlmProvider, IProveedorLlmFactory
+public sealed class ProveedorGuionado(string id = "openrouter") : ILlmProvider, IProveedorLlmFactory
 {
     private readonly Queue<LlmEvento[]> _guion = new();
 
@@ -121,11 +121,17 @@ public sealed class BancoDePruebas : IDisposable
             NullLogger<BovedaCredenciales>.Instance);
 
         Tutor = new AgenteTutorService(
-            Db, Contexto, ejecutor, Examen, Proveedor, Boveda, Reloj,
+            Db, Contexto, ejecutor, Examen, Proveedor, Boveda, Generador, Reloj,
             NullLogger<AgenteTutorService>.Instance);
     }
 
-    /// <summary>Curso, clase con contenido, examen publicado de 2 preguntas y un alumno.</summary>
+    /// <summary>Sustituye a la IA que arma el examen: siempre las mismas 2 preguntas.</summary>
+    public GeneradorFijo Generador { get; } = new();
+
+    /// <summary>
+    /// Curso, clase con contenido, examen publicado y un alumno. Las 2 preguntas de cada
+    /// intento las "genera" <see cref="Generador"/> al empezarlo, como haria la IA (RF-04).
+    /// </summary>
     public BancoDePruebas Sembrar(bool ampliacionPermitida = true, ModoFeedback feedback = ModoFeedback.AlFinal)
     {
         var alumno = new Usuario { Email = "alumna@uni.edu", Nombre = "Alumna", Rol = RolUsuario.Alumno };
@@ -178,9 +184,6 @@ public sealed class BancoDePruebas : IDisposable
             Publicado = true
         };
 
-        examen.Preguntas.Add(Pregunta("Que funcion evita el desvanecimiento del gradiente?", 1, "ReLU"));
-        examen.Preguntas.Add(Pregunta("Que problema tiene la sigmoide en capas profundas?", 2, "Satura"));
-
         Db.Usuarios.Add(alumno);
         Db.Cursos.Add(curso);
         Db.Clases.Add(clase);
@@ -189,19 +192,18 @@ public sealed class BancoDePruebas : IDisposable
         Db.Matriculas.Add(new Matricula { UsuarioId = alumno.Id, CursoId = curso.Id, RolEnCurso = RolUsuario.Alumno });
         Db.Agentes.Add(new AgenteIA
         {
-            Id = "claude",
-            NombreVisible = "Claude",
-            Proveedor = "Anthropic",
-            Modelo = "claude-sonnet-5",
-            BaseUrl = "https://api.anthropic.com",
-            UrlConsola = "https://console.anthropic.com/settings/keys",
+            Id = "openrouter",
+            NombreVisible = "OpenRouter (gratis)",
+            Proveedor = "OpenRouter",
+            Modelo = "qwen/qwen3.8-27b:free",
+            BaseUrl = "https://openrouter.ai",
             Habilitado = true
         });
 
         Db.SaveChanges();
 
         // El alumno llega con su credencial BYOK ya conectada.
-        Boveda.ConectarAsync(alumno.Id, "claude", "sk-ant-de-prueba-0000-1234").GetAwaiter().GetResult();
+        Boveda.ConectarAsync(alumno.Id, "openrouter", "sk-or-v1-de-prueba-0000-1234").GetAwaiter().GetResult();
 
         AlumnoId = alumno.Id;
         ClaseId = clase.Id;
@@ -210,7 +212,7 @@ public sealed class BancoDePruebas : IDisposable
         return this;
     }
 
-    private static Pregunta Pregunta(string enunciado, int orden, string correcta) => new()
+    public static Pregunta Pregunta(string enunciado, int orden, string correcta) => new()
     {
         Enunciado = enunciado,
         Justificacion = "Esta en el material de la clase.",
@@ -247,5 +249,29 @@ public sealed class BancoDePruebas : IDisposable
     {
         Db.Dispose();
         _conexion.Dispose();
+    }
+}
+
+/// <summary>Generador de examen de prueba: dos preguntas conocidas, la correcta en la A.</summary>
+public sealed class GeneradorFijo : IGeneradorExamen
+{
+    public int Llamadas { get; private set; }
+
+    /// <summary>Si se fija, la generacion falla con este error del proveedor.</summary>
+    public ErrorProveedor? Falla { get; set; }
+
+    public Task<IReadOnlyList<Pregunta>> GenerarAsync(
+        ILlmProvider proveedor, string modelo, ContextoClase contexto, int cantidad, CancellationToken ct = default)
+    {
+        Llamadas++;
+        if (Falla is not null) throw new GeneracionExamenException("Fallo el proveedor.", Falla);
+
+        IReadOnlyList<Pregunta> preguntas =
+        [
+            BancoDePruebas.Pregunta("Que funcion evita el desvanecimiento del gradiente?", 1, "ReLU"),
+            BancoDePruebas.Pregunta("Que problema tiene la sigmoide en capas profundas?", 2, "Satura")
+        ];
+
+        return Task.FromResult(preguntas);
     }
 }

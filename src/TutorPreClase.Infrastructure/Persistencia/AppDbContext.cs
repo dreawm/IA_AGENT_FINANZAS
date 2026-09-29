@@ -66,7 +66,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> opciones)
         {
             e.ToTable("clase");
             e.Property(c => c.Titulo).HasMaxLength(300).IsRequired();
-            e.Property(c => c.AmpliacionPermitida).HasDefaultValue(true);
+            e.Property(c => c.AmpliacionPermitida).HasDefaultValue(false);
             e.HasOne(c => c.Curso).WithMany(c => c.Clases)
                 .HasForeignKey(c => c.CursoId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -97,6 +97,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> opciones)
             e.ToTable("examen");
             e.HasIndex(x => x.ClaseId).IsUnique();
             e.Property(x => x.ModoFeedback).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.PreguntasPorIntento).HasDefaultValue(6);
             e.HasOne(x => x.Clase).WithOne(c => c.Examen)
                 .HasForeignKey<Examen>(x => x.ClaseId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -110,6 +111,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> opciones)
             e.Property(p => p.Nivel).HasConversion<string>().HasMaxLength(20);
             e.HasOne(p => p.Examen).WithMany(x => x.Preguntas)
                 .HasForeignKey(p => p.ExamenId).OnDelete(DeleteBehavior.Cascade);
+            // Las preguntas generadas para un intento viven y mueren con el.
+            e.HasOne(p => p.Intento).WithMany()
+                .HasForeignKey(p => p.IntentoId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<Alternativa>(e =>
@@ -206,6 +210,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> opciones)
             e.Property(c => c.ClaveCifrada).IsRequired();
             e.Property(c => c.Ultimos4).HasMaxLength(4).IsRequired();
             e.Property(c => c.Estado).HasConversion<string>().HasMaxLength(20);
+            e.Property(c => c.Origen).HasConversion<string>().HasMaxLength(20)
+                .HasDefaultValue(OrigenCredencial.Pegada).HasSentinel(OrigenCredencial.Pegada);
             // Una credencial por alumno y agente; se va con el usuario.
             e.HasIndex(c => new { c.UsuarioId, c.AgenteId }).IsUnique();
             e.HasOne(c => c.Usuario).WithMany()

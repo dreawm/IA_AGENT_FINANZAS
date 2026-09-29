@@ -55,15 +55,20 @@ public class ReglasExamenTests
     [Fact]
     public void Registrar_respuesta_valida_pertenencia_duplicado_y_tiempo()
     {
-        var pregunta = new Pregunta { Enunciado = "¿?" };
-        var examen = ExamenAbierto(minutos: 10);
-        examen.Preguntas.Add(pregunta);
         var intento = new Intento { Estado = EstadoIntento.EnCurso, Inicio = Ahora };
+        var pregunta = new Pregunta { Enunciado = "¿?", IntentoId = intento.Id };
+        var deOtroAlumno = new Pregunta { Enunciado = "¿?", IntentoId = Guid.NewGuid() };
+        var examen = ExamenAbierto(minutos: 10);
+        examen.Preguntas.AddRange([pregunta, deOtroAlumno]);
 
         Assert.True(ReglasExamen.PuedeRegistrarRespuesta(examen, intento, pregunta.Id, Ahora).Permitido);
 
         Assert.Equal(MotivoRechazo.PreguntaAjenaAlIntento,
             ReglasExamen.PuedeRegistrarRespuesta(examen, intento, Guid.NewGuid(), Ahora).Motivo);
+
+        // Cada alumno rinde sus propias preguntas (RF-04): la de otro intento no vale aqui.
+        Assert.Equal(MotivoRechazo.PreguntaAjenaAlIntento,
+            ReglasExamen.PuedeRegistrarRespuesta(examen, intento, deOtroAlumno.Id, Ahora).Motivo);
 
         intento.Respuestas.Add(new RespuestaIntento { PreguntaId = pregunta.Id });
         Assert.Equal(MotivoRechazo.PreguntaYaRespondida,

@@ -1,0 +1,100 @@
+<header class="cabecera">
+  <div>
+    <h1>{{ esDocente ? 'Usuarios' : 'Administración' }}</h1>
+    <p class="quien">{{ sesion.usuario()?.nombre }}</p>
+  </div>
+  <div class="acciones">
+    @if (esDocente) {
+      <button class="enlace" (click)="sesion.verUsuarios.set(false)">Volver a mis clases</button>
+    }
+    <button class="enlace" (click)="sesion.salir()">Salir</button>
+  </div>
+</header>
+
+@if (error()) {
+  <p class="error" role="alert">{{ error() }}</p>
+}
+@if (aviso()) {
+  <p class="aviso" role="status">{{ aviso() }}</p>
+}
+
+<main class="contenido">
+  <section aria-labelledby="t-alta">
+    <h2 id="t-alta">Cambiar el rol o los cursos de una persona</h2>
+    <p class="ayuda">
+      Cualquiera que entre con su cuenta de Google o Microsoft queda como alumno de todos los cursos. Aquí
+      puedes hacer docente a alguien o darlo de alta antes de que entre. Usa el correo de su cuenta.
+    </p>
+
+    <form (submit)="$event.preventDefault(); guardar()">
+      <label>Correo
+        <input type="email" required [value]="email()" (input)="email.set($any($event.target).value)" />
+      </label>
+      <label>Nombre
+        <input type="text" [value]="nombre()" (input)="nombre.set($any($event.target).value)" />
+      </label>
+      <label>Rol
+        <select [value]="rol()" (change)="rol.set($any($event.target).value)">
+          @for (r of roles; track r) {
+            <option [value]="r">{{ nombreRol(r) }}</option>
+          }
+        </select>
+      </label>
+
+      <fieldset>
+        <legend>Cursos</legend>
+        @for (c of cursos(); track c.id) {
+          <label class="marca">
+            <input type="checkbox" [checked]="cursosElegidos().includes(c.id)"
+                   (change)="alternarCurso(c.id, $any($event.target).checked)" />
+            {{ c.codigo }}, {{ c.nombre }}
+          </label>
+        } @empty {
+          <p class="ayuda">Aún no hay cursos: aparecen al crear su carpeta en <code>course-content</code>.</p>
+        }
+      </fieldset>
+
+      <button type="submit" class="principal" [disabled]="!email().includes('@')">Guardar</button>
+    </form>
+  </section>
+
+  <section aria-labelledby="t-lista">
+    <h2 id="t-lista">Alta por lista</h2>
+    <p class="ayuda">Una persona por línea: <code>correo, nombre, rol</code>. Si no pones rol, entra como alumno.</p>
+
+    <form (submit)="$event.preventDefault(); guardarLista()">
+      <textarea rows="5" [value]="lista()" (input)="lista.set($any($event.target).value)"
+                placeholder="ana.perez@upc.edu.pe, Ana Pérez&#10;luis.rojas@upc.edu.pe, Luis Rojas, Docente"></textarea>
+      <label>Matricular en
+        <select [value]="cursoLista()" (change)="cursoLista.set($any($event.target).value)">
+          @for (c of cursos(); track c.id) {
+            <option [value]="c.id">{{ c.codigo }}, {{ c.nombre }}</option>
+          }
+        </select>
+      </label>
+      <button type="submit" class="principal" [disabled]="!lista().trim()">Guardar lista</button>
+    </form>
+  </section>
+
+  <section class="ancho" aria-labelledby="t-usuarios">
+    <h2 id="t-usuarios">Usuarios registrados</h2>
+    <table>
+      <thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Cursos</th><th></th></tr></thead>
+      <tbody>
+        @for (u of usuarios(); track u.id) {
+          <tr>
+            <td>{{ u.nombre }}</td>
+            <td>{{ u.email }}</td>
+            <td>{{ nombreRol(u.rol) }}</td>
+            <td>
+              @for (id of u.cursos; track id) {
+                <span class="curso">{{ codigoDe().get(id) }}</span>
+              }
+            </td>
+            <td><button type="button" class="enlace" (click)="editar(u)">Editar</button></td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </section>
+</main>

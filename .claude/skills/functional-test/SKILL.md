@@ -1,6 +1,6 @@
 ---
 name: functional-test
-description: Prueba funcional del Tutor Pre-Clase trazada al SDD — recorre los requisitos RF-01 a RF-28 y los RNF verificables a mano, en la web y por API, y reporta cuáles pasan, cuáles fallan y cuáles no están implementados. Úsalo cuando pidan probar la app entera, validarla antes de una demo, o comprobar que un cambio no rompió el flujo completo.
+description: Prueba funcional del Tutor Pre-Clase trazada al SDD — recorre los requisitos RF-01 a RF-35 (incluidos el inicio de sesión y las pantallas por rol) y los RNF verificables a mano, en la web y por API, y reporta cuáles pasan, cuáles fallan y cuáles no están implementados. Úsalo cuando pidan probar la app entera, validarla antes de una demo, o comprobar que un cambio no rompió el flujo completo.
 ---
 
 # Prueba funcional según el SDD
@@ -13,42 +13,46 @@ El arranque no está aquí: **invoca primero el skill `start-local`**.
 
 ## 0. Preparación
 
-```bash
-dotnet test
-```
+Corre las pruebas .NET en Docker con el paso 2b de `start-local` (en Windows, Smart App
+Control bloquea las DLL recién compiladas; no se toca esa configuración).
 
-Gratis y en segundos: cubre RF-08, RF-09, RF-12, RF-15, RF-21, RF-24 a RF-28 y RNF-10 a
-nivel de unidad e integración. Si algo falla ahí, arréglalo antes de abrir el navegador.
+Gratis y en segundos: cubre RF-02 a RF-05, RF-08, RF-09, RF-12, RF-15, RF-21, RF-24 a RF-31, RF-33 y
+RNF-10 a nivel de unidad e integración (el OIDC de Microsoft y Google, con el proveedor simulado). Si algo falla ahí, arréglalo antes de abrir el navegador.
 
 Toma los identificadores: `curl -s http://localhost:5080/demo` → `$DOC`, `$ALU`, `$CLA`.
+Por `curl` se actúa con las cabeceras de desarrollo `X-Usuario-Id` / `X-Usuario-Rol`; la web,
+en cambio, usa la sesión (`Authorization: Bearer`) que emite la API al entrar.
 
-**La credencial (BYOK).** El chat necesita una clave de API real de Anthropic o de OpenAI;
-las suscripciones de claude.ai Pro y ChatGPT Plus no habilitan la API. La conecta la
-persona en el bloque B desde la web. **Nunca la pidas por el chat, ni la escribas en un
-archivo, un log o el resumen.** Sin clave, salta los bloques C, D y E y dilo al reportar.
+**La cuenta del alumno (BYOK).** La única vía para que el tutor converse es la cuenta de
+OpenRouter del alumno, conectada con *Conectar con OpenRouter (gratis)* (RF-24, RF-29); no
+hay campo para pegar claves. La conecta la persona en el bloque B iniciando sesión ella
+misma en OpenRouter — tú no escribes contraseñas ni creas cuentas. **Nunca pidas la clave
+por el chat, ni la escribas en un archivo, un log o el resumen.** Sin cuenta conectada, salta
+los bloques C, D y E y dilo al reportar.
 
 ## Bloque A — El docente prepara la clase
 
 | Requisito | Cómo verificarlo |
 | --- | --- |
-| RF-01 | `POST /api/v1/cursos/$CUR/clases` crea una clase; `PUT /api/v1/clases/$CLA/examen` fija ventana e intentos |
-| RF-02 | Sube un `.md` y un `.pdf` al mismo `POST /api/v1/clases/$CLA/contenido`; ambos se aceptan |
-| RF-03 | `GET /api/v1/clases/$CLA/contenido` pasa a `"estado":"Listo"` con `paginas` ≥ 1 y `contextoClase.tokens` > 0 |
-| RF-05 | `POST /api/v1/examenes/$EX/preguntas` exige exactamente una alternativa correcta y guarda la justificación |
+| RF-01 | Cada subcarpeta de `course-content/MFEP - Finanzas empresariales/` es una clase (`GET /alumno/clases`: M1…M7, 19:00 de Lima, una por semana); `PUT /api/v1/clases/$CLA/examen` fija ventana e intentos |
+| RF-02 | Copia un `.md` a la carpeta de M2 → en ≤ 30 s aparece en `GET /clases/<M2>/contenido`; bórralo → desaparece. El `.xlsx` de M4 figura con 3 páginas (una por hoja) |
+| RF-03 | Todos los archivos en `"estado":"Listo"` con `paginas` ≥ 1; M1 con `contextoClase.tokens` ≈ 9 500 |
+| RF-04 | Cada clase de la carpeta tiene su examen publicado sin preguntas (las genera la IA); `POST /examenes/$EX/preguntas` ya no existe |
 | RF-14 | `PUT .../examen` con `"modoFeedback":"Inmediato"` y con `"AlFinal"`: ambos aceptados |
 | RF-18 | `PUT .../examen` con `"minutosLimite":10`; luego el chat emite `segundosRestantes` en `progreso` |
 
 ```bash
-printf 'La funcion sigmoide satura en los extremos y por eso reduce el gradiente.\nReLU mantiene gradiente 1 para entradas positivas y evita el desvanecimiento.\n' > <scratchpad>/Clase03.md
-
-curl -s -X POST -H "X-Usuario-Id: $DOC" -H "X-Usuario-Rol: Docente" \
-  -F "archivo=@<scratchpad>/Clase03.md" "http://localhost:5080/api/v1/clases/$CLA/contenido"
+M2="course-content/MFEP - Finanzas empresariales/M2 - Indicadores de gestión"
+printf 'Prueba de sincronizacion.\n' > "$M2/prueba-sincronizacion.md"   # bórralo al terminar
 
 curl -s -H "X-Usuario-Id: $DOC" -H "X-Usuario-Rol: Docente" \
   "http://localhost:5080/api/v1/clases/$CLA/contenido"
 ```
 
-## Bloque B — Credencial propia (BYOK)
+El material es el del curso real: **no** borres ni edites los archivos del docente; usa
+solo un archivo de prueba propio y quítalo al terminar.
+
+## Bloque B — Entrada, roles y conexión de la cuenta (OpenRouter)
 
 Los bloques B a G se prueban **en la pantalla, con Chrome**; el `curl` solo complementa.
 Invoca el skill `claude-in-chrome` y carga las herramientas en **una sola** llamada a ToolSearch:
@@ -64,22 +68,43 @@ connected"*, **detente y avisa**: la persona debe abrir Chrome con la extensión
 prueba de pantalla por `curl` en silencio; si decide seguir sin navegador, marca como
 **no verificados** los requisitos de UI.
 
-Con la conexión lista: `tabs_create_mcp`, navega a `http://localhost:4200` y entra con el
-`alumnoId`.
+Con la conexión lista: `tabs_create_mcp` y navega a `http://localhost:4200`.
+
+**Entrada y roles.** Aquí no inicias sesión en Microsoft, Google ni OpenRouter: eso lo hace la
+persona. Tú entras con los usuarios de prueba (solo existen en desarrollo).
 
 | Requisito | Cómo verificarlo |
 | --- | --- |
-| RF-27 | Al entrar sin credencial, se abre el panel **"Conecta tu agente"** y el campo de mensaje está deshabilitado |
-| RF-25 | Con una clave inventada, el proveedor la rechaza, sale el aviso y **no** se guarda (`GET /alumno/credenciales` sigue vacío) |
-| RF-24 | La persona pega su clave real → el panel se cierra y el agente queda conectado; **Desconectar** lo revierte |
-| RF-26 / RNF-10 | `GET /api/v1/alumno/credenciales` devuelve solo `agenteId`, `ultimos4`, `estado` y fechas. **Si aparece la clave completa, párate y repórtalo: es un fallo grave** |
+| RF-31 | Sale la página de entrada (franja roja UPC). Sin `ClientId` configurado, `GET /acceso/proveedores` devuelve `[]` y la página dice que Microsoft y Google aún no están configurados; con él, salen *Entrar con Microsoft* / *Entrar con Google* y llevan al proveedor con `code_challenge_method=S256` |
+| RF-31 | *Administración Demo* → gestión de usuarios; *Docente Demo* → panel del docente; *Alumna Demo* → chat. **Salir** vuelve a la entrada y borra la sesión |
+| RF-31 | `POST /acceso/microsoft/canje` con `code` y `state` inventados → error (proveedor sin configurar o `state` vencido) y ninguna sesión emitida |
+| RF-33 | Como docente: el botón **Usuarios** abre la gestión de usuarios y *Volver a mis clases* regresa. Da de alta `prueba.funcional@uni.edu` como Alumno en MFEP → aparece en la tabla y entra directo al chat con ese curso |
+| RF-33 | Registro abierto (lo cubren las pruebas .NET; en pantalla, solo con Google configurado): una cuenta nueva entra como alumno de todos los cursos; el correo de `Acceso:Docentes` entra como docente |
+| RF-33 | Un Alumno contra `GET /admin/usuarios` → **403**; un Docente → 200 |
+| RF-34 | Como docente: cada clase muestra su material (estado *Listo*, páginas, tokens), la ventana del examen, el interruptor de ampliación (apagado) y el reporte |
+| RF-32 | Al entrar como alumna sin OpenRouter, la web va sola a `openrouter.ai/auth` (la persona inicia sesión y autoriza, no tú). Si vuelve cancelando, queda en el chat con el panel de conexión y **no** la redirige otra vez |
+
+**Conexión de la cuenta.**
+
+| Requisito | Cómo verificarlo |
+| --- | --- |
+| RF-27 | Al entrar sin cuenta conectada, se abre el panel **"Conecta tu tutor"** con un único botón y el campo de mensaje está deshabilitado |
+| RF-29 | El panel no tiene ningún campo para pegar claves, y `PUT /alumno/credenciales/openrouter` con una clave no guarda nada |
+| RF-29 | `/conectar/openrouter?code=inventado` sin haber iniciado → aviso *"venció o ya se usó"*, la URL queda en `/` y nada guardado |
+| RF-24 | *Conectar con OpenRouter (gratis)* lleva a `openrouter.ai` con `code_challenge_method=S256` y `callback_url` a `/conectar/openrouter`. La persona inicia sesión y autoriza → vuelve, el panel se cierra y el chat queda listo; **Desconectar** lo revierte |
+| RF-25 | Un código inventado canjeado por la API responde `oauth_rechazado` (lo rechaza OpenRouter real) y no se guarda |
+| RF-26 / RNF-10 | `GET /api/v1/alumno/credenciales` devuelve solo `agenteId`, `ultimos4`, `origen` (`OAuth`), `estado` y fechas. **Si aparece la clave completa, párate y repórtalo: es un fallo grave** |
 | RF-26 | Desde otro `X-Usuario-Id` el mismo endpoint devuelve `[]` |
-| RF-06 | El selector de la cabecera solo lista los agentes conectados |
+| RF-06 | Con un solo agente, la cabecera no muestra selector |
+| RF-30 | Si el modelo gratuito devuelve 429, sale el aviso de cupo (`limite_de_uso`) y la credencial sigue `Valida` |
 
 ```bash
-curl -s -X PUT -H "X-Usuario-Id: $ALU" -H "X-Usuario-Rol: Alumno" \
-  -H "Content-Type: application/json" -d '{"clave":"sk-ant-api03-esta-no-existe-0000"}' \
-  "http://localhost:5080/api/v1/alumno/credenciales/claude"     # clave_rechazada
+curl -s -X POST -H "X-Usuario-Id: $ALU" -H "X-Usuario-Rol: Alumno" \
+  "http://localhost:5080/api/v1/alumno/credenciales/openrouter/oauth/inicio"   # { url }
+
+curl -s -X POST -H "X-Usuario-Id: $ALU" -H "X-Usuario-Rol: Alumno" \
+  -H "Content-Type: application/json" -d '{"code":"codigo-inventado"}' \
+  "http://localhost:5080/api/v1/alumno/credenciales/openrouter/oauth/canje"    # oauth_rechazado
 
 curl -s -H "X-Usuario-Id: $ALU" -H "X-Usuario-Rol: Alumno" \
   "http://localhost:5080/api/v1/alumno/credenciales"
@@ -92,9 +117,9 @@ curl -s -H "X-Usuario-Id: $(python -c 'import uuid;print(uuid.uuid4())')" \
 
 | Requisito | Cómo verificarlo |
 | --- | --- |
-| RF-19 | `¿qué dice el material sobre la sigmoide?` obtiene respuesta del tema |
-| RF-11 | Esa respuesta trae **chip de fuente** `Clase03.md, p. 1` |
-| RF-12 | `¿y qué es GELU, que no está en el material?` → lo dice, y amplía en bloque **"Fuera del material"**, ámbar y sin chip de fuente |
+| RF-19 | En M1: `¿qué diferencia hay entre costo y gasto?` obtiene respuesta del tema |
+| RF-11 | Esa respuesta cita la infografía *Costo vs Gasto* (resaltada en el texto y en el margen) |
+| RF-12 / RF-20 | `¿qué es el WACC?` (no está en el material de M1). Con la ampliación **apagada, que es lo que viene por defecto**: responde *"Esto no está en el material de la clase; pregúntalo en la sesión."* y no sale nada a lápiz |
 | RF-19 | `dame una receta de ceviche` → declina y reconduce al curso |
 | RNF-02 | El primer token aparece en menos de ~3 s |
 
@@ -102,7 +127,10 @@ curl -s -H "X-Usuario-Id: $(python -c 'import uuid;print(uuid.uuid4())')" \
 
 | Requisito | Cómo verificarlo |
 | --- | --- |
-| RF-06 | **Comenzar examen**: la cabecera pasa a *Examen en curso* y el selector de agente queda deshabilitado |
+| RF-04 | **Comenzar examen**: sale *"Preparando tu examen con el material de la clase…"* y en unos segundos arranca con 6 preguntas **sobre el material de M1** (no inventadas ni de otro tema) |
+| RF-05 | Cada pregunta trae 4 alternativas; la correcta no cae siempre en la misma letra. Tras el examen, `GET /intentos/$INT/resultado` muestra justificaciones que citan `[archivo, p. N]` |
+| RF-04 | Un segundo intento trae preguntas distintas a las del primero |
+| RF-06 | La cabecera pasa a *Examen en curso* y el intento guarda el modelo (`openrouter` en `usoPorAgente` del reporte) |
 | RF-15 | Pide una pista o la respuesta: se niega y no filtra la correcta |
 | RF-07 | Responde en lenguaje natural (`creo que es la A`): el progreso avanza y presenta la siguiente |
 | RF-18 | Con `minutosLimite`, la cabecera muestra el tiempo restante |
@@ -116,8 +144,8 @@ curl -s -H "X-Usuario-Id: $(python -c 'import uuid;print(uuid.uuid4())')" \
 | --- | --- |
 | RF-10 | `revisemos mis errores` → explica por qué falló, el concepto correcto y una pregunta de comprobación |
 | RF-11 | Esa explicación cita el material con **chip de fuente válido** |
-| RF-12 | Una repregunta fuera del material vuelve a salir marcada como ampliación |
-| RF-13 | `GET /api/v1/clases/$CLA/reporte` → `dudasFueraDelMaterial` incluye la consulta sobre GELU con `conAmpliacion: true` |
+| RF-12 | Una repregunta fuera del material recibe el mismo aviso: el tutor no sale del material |
+| RF-13 | `GET /api/v1/clases/$CLA/reporte` → `dudasFueraDelMaterial` incluye la consulta sobre el WACC con `conAmpliacion: false` |
 
 ## Bloque F — Nivel, reporte y control del docente
 
@@ -125,9 +153,10 @@ curl -s -H "X-Usuario-Id: $(python -c 'import uuid;print(uuid.uuid4())')" \
 | --- | --- |
 | RF-21 | El reporte trae el nivel del alumno acorde a su nota (0–10,9 Inicial · 11–14,9 Básico · 15–17,9 Intermedio · 18–20 Avanzado) |
 | RF-22 | El reporte trae `distribucionNiveles`, nivel por alumno y `temasDebilesDelGrupo` |
-| RF-16 | El reporte trae `promedioNota`, `distribucionNotas`, `preguntasMasFalladas` y `usoPorAgente` |
+| RF-16 | El reporte trae `promedioNota`, `distribucionNotas`, `temasMasFallados` y `usoPorAgente` |
 | RF-21 | `PUT /clases/$CLA/niveles/$ALU` con `{"nivel":"Avanzado"}` responde `"origen":"Docente"` y el cálculo no lo pisa |
-| RF-20 | `PUT /clases/$CLA/ampliacion` con `{"permitida":false}`; recarga el chat y pregunta algo fuera del material: ya **no** sale el bloque de ampliación, sino *"Esto no está en el material de la clase; pregúntalo en la sesión."* — lo corta el servidor, no el prompt |
+| RF-20 | `PUT /clases/$CLA/ampliacion` con `{"permitida":true}`; recarga el chat y repite `¿qué es el WACC?`: ahora lo dice y amplía **a lápiz en el margen** ("Fuera del material"). Vuelve a `{"permitida":false}` al terminar: apagada, el corte lo hace el servidor, no el prompt |
+| RF-02 / §6.1 | Con el chat abierto en M2, copia el archivo de prueba del bloque A a esa carpeta: en ≤ 30 s sale *"Tu docente actualizó el material de esta clase"* sin recargar. Sin cambios en la carpeta, `read_network_requests` no muestra pedidos periódicos a `/alumno/clases` (solo la conexión abierta a `/alumno/novedades`) |
 
 ```bash
 curl -s -H "X-Usuario-Id: $DOC" -H "X-Usuario-Rol: Docente" \
@@ -138,10 +167,11 @@ curl -s -H "X-Usuario-Id: $DOC" -H "X-Usuario-Rol: Docente" \
 
 | Requisito | Cómo verificarlo |
 | --- | --- |
-| SDD §9.1 | Alumno contra `GET /clases/$CLA/reporte` → **403**; sin cabeceras → **401** |
+| SDD §9.1 | Alumno contra `GET /clases/$CLA/reporte` → **403**; sin sesión ni cabeceras → **401** |
+| SDD §9.1 | Con una sesión alterada (cambia un carácter del `Bearer` en `sessionStorage` `tutor.sesion`) la API responde 401 y la web vuelve a la entrada |
 | SDD §9.1 | Otro alumno contra `GET /conversaciones/$CONV/mensajes` → **403** |
 | RF-28 | Desconecta la credencial y escribe en el chat: avisa `sin_credencial` y no llama al proveedor. Con una credencial que el proveedor rechace, se marca *Invalida* y pide reconectarla |
-| RNF-06 | El prompt no lleva nombre ni correo del alumno (revisa `api.log`) |
+| RNF-06 | El prompt no lleva nombre ni correo del alumno (revisa `docker logs tutor-api`) |
 | RNF-07 | Estrecha el navegador a ~400 px: la lista de clases pasa arriba y el chat sigue usable |
 
 ## Requisitos que hoy no se pueden dar por buenos
@@ -150,10 +180,13 @@ Dilo explícitamente al reportar; no los marques como aprobados:
 
 | Requisito | Estado |
 | --- | --- |
-| RF-04 | La generación de preguntas con IA no está implementada: el docente las crea y aprueba por API |
-| RF-05 | La justificación y la respuesta correcta sí se guardan; las **referencias al contenido** (`pregunta_referencia`) no tienen endpoint todavía |
-| RF-17 | Cambiar de agente funciona en Consulta y Revisión, pero **durante el examen está bloqueado**: no se cumple "continuar con otro agente sin perder el avance" ante un fallo del proveedor |
-| RF-23 | El banco adaptativo por nivel no filtra por nivel todavía |
+| RF-31 | Con cuentas reales solo si alguien registró la aplicación en Microsoft Entra ID y en Google (redirecciones `http://localhost:4200/entrar/microsoft` y `/entrar/google`) y configuró su `ClientId`/secreto; si no, solo se verifica con los usuarios de prueba y con las pruebas .NET |
+| RF-34 | El panel del docente todavía no ajusta ventana, intentos, tiempo ni modo de feedback: solo por `PUT /clases/$CLA/examen` |
+| RF-35 | El modelo del tutor se cambia solo por `PUT /admin/agentes/openrouter`; no hay pantalla |
+| RF-05 | La justificación cita el material, pero las **referencias** no se guardan aún en `pregunta_referencia` |
+| RF-17 | Reintentar tras un fallo no pierde el avance (el historial vive en la base), pero la web no ofrece todavía un botón de reintento: el alumno reenvía el mensaje |
+| RNF-11 | `data_collection: deny` se envía en cada llamada, pero que el modelo `:free` elegido tenga proveedores que lo cumplan solo se ve con la cuenta real conectada |
+| RF-23 | La IA todavía no ajusta la dificultad al nivel del alumno |
 | RNF-08 | No hay tope de mensajes por alumno y clase |
 | RNF-03 / RNF-04 / RNF-05 | Carga, volumen y disponibilidad: no se verifican a mano, hacen falta k6 y medición en despliegue |
 
@@ -163,17 +196,19 @@ Para parar los procesos, usa el paso 5 del skill `start-local`. Y si quieres dej
 limpio para la próxima — esto borra también la credencial conectada y el contenido subido:
 
 ```bash
-rm -f src/TutorPreClase.Api/tutorpreclase-dev.db
-rm -rf src/TutorPreClase.Api/almacen
+docker rm -f tutor-api
+docker volume rm tutor-datos tutor-claves
 ```
 
 ## Al terminar
 
 Reporta por bloques: qué requisito pasó, cuál falló y con qué evidencia, y cuáles se
-saltaron (por falta de credencial o porque no están implementados). No des por bueno lo que
+saltaron (por falta de credencial o porque no están implementados). Quita el archivo de
+prueba de `course-content/`; el usuario de prueba de RF-33 se va al borrar el volumen. No des por bueno lo que
 no comprobaste.
 
 Un modelo real no repite frases exactas: verifica el **comportamiento** (que cite, que marque
 la ampliación, que registre la respuesta, que no filtre la correcta), nunca el texto literal.
-El recorrido completo son ~12 mensajes cortos al proveedor — céntimos, pero lo paga la
-cuenta conectada: avisa si se va a repetir muchas veces.
+El recorrido completo son ~12 mensajes cortos, pero cada vuelta de herramientas es una
+llamada: gasta buena parte del cupo gratuito diario de la cuenta conectada (50 llamadas sin
+créditos). Avisa si se va a repetir en el mismo día.

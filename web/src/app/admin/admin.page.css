@@ -1,0 +1,136 @@
+:host {
+  display: block;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.quien {
+  margin: 0.15rem 0 0;
+  font-size: var(--t-pequeno);
+  color: var(--upc-suave);
+}
+
+.aviso {
+  margin: 0;
+  padding: 0.6rem 1.5rem;
+  border-left: 3px solid var(--tapa);
+  background: color-mix(in srgb, var(--tapa) 7%, var(--papel));
+  color: var(--tapa);
+}
+
+.contenido {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 2rem 3rem;
+  max-width: 64rem;
+  padding: 2rem 2.5rem 3rem;
+}
+
+.ancho {
+  grid-column: 1 / -1;
+}
+
+h2 {
+  margin: 0 0 0.3rem;
+  font-family: var(--serif);
+  font-size: var(--t-lectura);
+  font-weight: 600;
+}
+
+.ayuda {
+  margin: 0 0 1rem;
+  font-size: var(--t-pequeno);
+  color: var(--grafito);
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.8rem;
+}
+
+form > .principal {
+  align-self: flex-start;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: var(--t-pequeno);
+  font-weight: 600;
+}
+
+label input,
+label select {
+  font-weight: 400;
+  font-size: var(--t-base);
+}
+
+fieldset {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border: 1.5px solid var(--pauta);
+  border-radius: 3px;
+}
+
+legend {
+  padding: 0 0.3rem;
+  font-size: var(--t-pequeno);
+  font-weight: 600;
+}
+
+.marca {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 400;
+  font-size: var(--t-base);
+}
+
+textarea {
+  padding: 0.55rem 0.7rem;
+  border: 1.5px solid var(--pauta);
+  border-radius: 3px;
+  font: inherit;
+  resize: vertical;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--pauta);
+  text-align: left;
+}
+
+th {
+  font-size: var(--t-pequeno);
+  color: var(--grafito);
+}
+
+.curso {
+  display: inline-block;
+  margin-right: 0.3rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--tapa);
+  border-radius: 2px;
+  color: var(--tapa);
+  font-size: var(--t-pequeno);
+}
+
+@media (max-width: 760px) {
+  .contenido {
+    padding: 1.25rem 1rem 2rem;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+  }
+}

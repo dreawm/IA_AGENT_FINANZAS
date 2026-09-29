@@ -11,11 +11,8 @@ namespace TutorPreClase.Api.Endpoints;
 
 public sealed record CrearClasePeticion(string Titulo, DateTimeOffset Inicio, int Orden);
 public sealed record ConfigurarExamenPeticion(
-    DateTimeOffset AbreEn, DateTimeOffset CierraEn, int MaxIntentos, int? MinutosLimite, string ModoFeedback);
-public sealed record AlternativaPeticion(string Letra, string Texto, bool EsCorrecta);
-public sealed record CrearPreguntaPeticion(
-    string Enunciado, string Justificacion, string Tema, string? Nivel, int Orden,
-    bool Aprobada, List<AlternativaPeticion> Alternativas);
+    DateTimeOffset AbreEn, DateTimeOffset CierraEn, int MaxIntentos, int? MinutosLimite, string ModoFeedback,
+    int? PreguntasPorIntento = null);
 public sealed record AmpliacionPeticion(bool Permitida);
 public sealed record CorregirNivelPeticion(string Nivel);
 
@@ -91,11 +88,13 @@ public static class EndpointsDocente
                 .ToListAsync(ct);
 
             var ctx = await contexto.ObtenerAsync(claseId, ct);
+            var ampliacion = await db.Clases.Where(c => c.Id == claseId).Select(c => c.AmpliacionPermitida).FirstOrDefaultAsync(ct);
 
             return Results.Ok(new
             {
                 archivos,
-                contextoClase = new { tokens = ctx.Tokens, truncado = ctx.Truncado }
+                contextoClase = new { tokens = ctx.Tokens, truncado = ctx.Truncado },
+                ampliacionPermitida = ampliacion
             });
         });
 
@@ -137,63 +136,20 @@ public static class EndpointsDocente
             examen.MaxIntentos = peticion.MaxIntentos;
             examen.MinutosLimite = peticion.MinutosLimite;
             examen.ModoFeedback = modo;
+            if (peticion.PreguntasPorIntento is int cantidad) examen.PreguntasPorIntento = Math.Clamp(cantidad, 3, 20);
 
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { examenId = examen.Id });
         });
 
-        grupo.MapPost("/examenes/{examenId:guid}/preguntas", async (
-            Guid examenId, CrearPreguntaPeticion peticion, IAppDbContext db, CancellationToken ct) =>
-        {
-            if (peticion.Alternativas.Count(a => a.EsCorrecta) != 1)
-                return Results.BadRequest(new { error = "Debe haber exactamente una alternativa correcta." });
-
-            NivelAlumnoValor? nivel = Enum.TryParse<NivelAlumnoValor>(peticion.Nivel, out var n) ? n : null;
-
-            var pregunta = new Pregunta
-            {
-                ExamenId = examenId,
-                Enunciado = peticion.Enunciado,
-                Justificacion = peticion.Justificacion,
-                Tema = peticion.Tema,
-                Nivel = nivel,
-                Orden = peticion.Orden,
-                Origen = OrigenPregunta.Docente,
-                Aprobada = peticion.Aprobada,
-                Alternativas = peticion.Alternativas
-                    .Select(a => new Alternativa { Letra = a.Letra, Texto = a.Texto, EsCorrecta = a.EsCorrecta })
-                    .ToList()
-            };
-
-            db.Preguntas.Add(pregunta);
-            await db.SaveChangesAsync(ct);
-
-            return Results.Created($"/api/v1/preguntas/{pregunta.Id}", new { preguntaId = pregunta.Id });
-        });
-
-        grupo.MapPost("/preguntas/{preguntaId:guid}/aprobar", async (
-            Guid preguntaId, IAppDbContext db, CancellationToken ct) =>
-        {
-            var pregunta = await db.Preguntas.FirstOrDefaultAsync(p => p.Id == preguntaId, ct);
-            if (pregunta is null) return Results.NotFound();
-
-            pregunta.Aprobada = true;
-            await db.SaveChangesAsync(ct);
-
-            return Results.Ok(new { preguntaId, aprobada = true });
-        });
+        // Las preguntas no se crean ni se aprueban a mano: la IA genera las de cada
+        // alumno en cada intento, a partir del material de la clase (RF-04).
 
         grupo.MapPost("/examenes/{examenId:guid}/publicar", async (
             Guid examenId, IAppDbContext db, CancellationToken ct) =>
         {
-            var examen = await db.Examenes
-                .Include(e => e.Preguntas)
-                .FirstOrDefaultAsync(e => e.Id == examenId, ct);
-
+            var examen = await db.Examenes.FirstOrDefaultAsync(e => e.Id == examenId, ct);
             if (examen is null) return Results.NotFound();
-
-            if (!examen.Preguntas.Any(p => p.Aprobada))
-                return Results.BadRequest(new { error = "El examen no tiene preguntas aprobadas." });
 
             examen.Publicado = true;
             await db.SaveChangesAsync(ct);

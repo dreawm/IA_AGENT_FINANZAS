@@ -8,6 +8,8 @@ export interface Agente {
   descripcion?: string;
   /** Consola del proveedor donde el alumno genera su credencial. */
   consola?: string;
+  /** 'OAuth': se conecta iniciando sesión en el proveedor, sin pegar clave (RF-29). */
+  conexion: 'Clave' | 'OAuth';
   conectado: boolean;
 }
 
@@ -15,6 +17,7 @@ export interface Agente {
 export interface Credencial {
   agenteId: string;
   ultimos4: string;
+  origen: 'Pegada' | 'OAuth';
   estado: 'Valida' | 'Invalida';
   creadaEn: string;
   ultimoUsoEn: string | null;
@@ -63,4 +66,31 @@ export function separarAmpliacion(texto: string): { cuerpo: string; ampliacion?:
     cuerpo: texto.slice(0, marca.index).trimEnd(),
     ampliacion: texto.slice(marca.index + marca[0].length).trim(),
   };
+}
+
+/** Un tramo del texto del tutor: texto corrido o una cita `[archivo, p. N]` al material. */
+export interface Tramo {
+  texto: string;
+  cita: boolean;
+}
+
+const CITA = /\[([^[\]]+?,\s*p\.\s*\d+)\]/g;
+
+/**
+ * Parte el texto en tramos para pintar las citas como subrayado de resaltador: lo que
+ * viene del material se ve distinto de lo demás sin leer ninguna etiqueta (RF-11).
+ */
+export function tramos(texto: string): Tramo[] {
+  const partes: Tramo[] = [];
+  let desde = 0;
+
+  for (const coincidencia of texto.matchAll(CITA)) {
+    const inicio = coincidencia.index ?? 0;
+    if (inicio > desde) partes.push({ texto: texto.slice(desde, inicio), cita: false });
+    partes.push({ texto: coincidencia[1], cita: true });
+    desde = inicio + coincidencia[0].length;
+  }
+
+  if (desde < texto.length) partes.push({ texto: texto.slice(desde), cita: false });
+  return partes;
 }

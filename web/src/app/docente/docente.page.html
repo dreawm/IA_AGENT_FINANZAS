@@ -1,0 +1,122 @@
+<div class="disposicion">
+  <nav class="clases" aria-label="Mis clases">
+    <h2>Mis clases</h2>
+    @for (clase of clases(); track clase.claseId) {
+      <button
+        class="clase"
+        [class.activa]="clase.claseId === activa()?.claseId"
+        [attr.aria-current]="clase.claseId === activa()?.claseId ? 'page' : null"
+        (click)="abrir(clase)">
+        <span class="titulo">{{ clase.titulo }}</span>
+        <span class="fecha">{{ clase.inicio | date: 'EEE d MMM, HH:mm' }}</span>
+      </button>
+    } @empty {
+      <p class="vacio">Aún no tienes clases. Crea una subcarpeta por clase en la carpeta del curso.</p>
+    }
+  </nav>
+
+  <main class="panel">
+    <header class="cabecera">
+      <div>
+        <h1>{{ activa()?.titulo ?? 'Panel del docente' }}</h1>
+        <p class="quien">{{ sesion.usuario()?.nombre }}</p>
+      </div>
+      <div class="acciones">
+        <button class="enlace" (click)="sesion.verUsuarios.set(true)">Usuarios</button>
+        <button class="enlace" (click)="sesion.salir()">Salir</button>
+      </div>
+    </header>
+
+    @if (error()) {
+      <p class="error" role="alert">{{ error() }}</p>
+    }
+
+    @if (activa(); as clase) {
+      <div class="contenido">
+        <section aria-labelledby="t-material">
+          <h2 id="t-material">Material de la clase</h2>
+          <p class="ayuda">
+            Se toma de la carpeta de la clase en <code>course-content</code>: lo que copies ahí aparece aquí en
+            menos de un minuto, y lo que quites se retira.
+          </p>
+
+          @if (contenido(); as c) {
+            <table>
+              <thead><tr><th>Archivo</th><th>Estado</th><th class="num">Páginas</th></tr></thead>
+              <tbody>
+                @for (a of c.archivos; track a.archivoId) {
+                  <tr>
+                    <td>{{ a.nombre }}</td>
+                    <td [class.falla]="a.estado === 'Error'" [attr.title]="a.error">
+                      {{ a.estado === 'Listo' ? 'Listo' : a.estado === 'Error' ? 'Sin texto' : 'Procesando' }}
+                    </td>
+                    <td class="num">{{ a.paginas }}</td>
+                  </tr>
+                } @empty {
+                  <tr><td colspan="3" class="vacio">Esta clase todavía no tiene material.</td></tr>
+                }
+              </tbody>
+            </table>
+            <p class="ayuda">El tutor lee {{ c.contextoClase.tokens | number }} tokens de material en esta clase.</p>
+          }
+        </section>
+
+        <section aria-labelledby="t-examen">
+          <h2 id="t-examen">Examen y tutor</h2>
+          @if (clase.examen; as e) {
+            <p>
+              Abierto del {{ e.abreEn | date: 'd MMM, HH:mm' }} al {{ e.cierraEn | date: 'd MMM, HH:mm' }}.
+              La IA genera un examen distinto para cada alumno a partir del material.
+            </p>
+          }
+          @if (contenido(); as c) {
+            <label class="interruptor">
+              <input type="checkbox" [checked]="c.ampliacionPermitida" (change)="alternarAmpliacion($any($event.target).checked)" />
+              Permitir que el tutor amplíe fuera del material (marcado como tal)
+            </label>
+          }
+        </section>
+
+        @if (reporte(); as r) {
+          <section aria-labelledby="t-reporte">
+            <h2 id="t-reporte">Cómo va el grupo</h2>
+
+            @if (r.alumnos === 0) {
+              <p class="vacio">Todavía ningún alumno rindió el examen de esta clase.</p>
+            } @else {
+              <p class="cifra"><strong>{{ r.promedioNota | number: '1.1-1' }}</strong> de promedio, {{ r.alumnos }} alumnos</p>
+
+              <div class="barras" aria-label="Distribución de notas">
+                @for (tramo of tramosNota; track tramo) {
+                  <div class="barra">
+                    <span class="valor" [style.height.%]="100 * (r.distribucionNotas[tramo] ?? 0) / maximo(r.distribucionNotas)"></span>
+                    <span class="etiqueta">{{ tramo }}</span>
+                    <span class="cuenta">{{ r.distribucionNotas[tramo] ?? 0 }}</span>
+                  </div>
+                }
+              </div>
+
+              @if (r.temasMasFallados.length) {
+                <h3>Temas más fallados</h3>
+                <ul class="temas">
+                  @for (t of r.temasMasFallados; track t.tema) {
+                    <li><span>{{ t.tema }}</span><span class="num">{{ t.porcentajeFallo }}% de {{ t.respondidas }}</span></li>
+                  }
+                </ul>
+              }
+            }
+
+            @if (r.dudasFueraDelMaterial.length) {
+              <h3>Dudas que tu material no cubrió</h3>
+              <ul class="dudas">
+                @for (d of r.dudasFueraDelMaterial; track $index) {
+                  <li>{{ d.texto }}</li>
+                }
+              </ul>
+            }
+          </section>
+        }
+      </div>
+    }
+  </main>
+</div>

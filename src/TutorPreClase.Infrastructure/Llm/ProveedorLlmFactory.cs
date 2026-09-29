@@ -28,8 +28,10 @@ public sealed class ProveedorLlmFactory(
             Nombre = plantilla.Nombre,
             BaseUrl = plantilla.BaseUrl,
             Modelo = plantilla.Modelo,
+            ModelosAlternativos = plantilla.ModelosAlternativos,
             Descripcion = plantilla.Descripcion,
             Habilitado = plantilla.Habilitado,
+            Conexion = plantilla.Conexion,
             ApiKey = apiKey
         };
 
@@ -37,9 +39,7 @@ public sealed class ProveedorLlmFactory(
 
         return agenteId switch
         {
-            "claude" => new ClaudeProvider(cliente, configAgente, logs.CreateLogger<ClaudeProvider>()),
-            "kimi" => new KimiProvider(cliente, configAgente, logs.CreateLogger<KimiProvider>()),
-            "openai" => new OpenAiProvider(cliente, configAgente, logs.CreateLogger<OpenAiProvider>()),
+            "openrouter" => new OpenRouterProvider(cliente, configAgente, logs.CreateLogger<OpenRouterProvider>()),
             _ => throw new InvalidOperationException($"Agente '{agenteId}' no soportado.")
         };
     }

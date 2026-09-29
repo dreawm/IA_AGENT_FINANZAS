@@ -26,7 +26,7 @@ public class ApiTests
         var (_, _, _, claseId) = api.Sembrar();
 
         var respuesta = await api.CreateClient()
-            .PostAsJsonAsync($"/api/v1/clases/{claseId}/conversacion", new { agenteId = "claude" });
+            .PostAsJsonAsync($"/api/v1/clases/{claseId}/conversacion", new { agenteId = "openrouter" });
 
         Assert.Equal(HttpStatusCode.Unauthorized, respuesta.StatusCode);
     }
@@ -49,7 +49,7 @@ public class ApiTests
         var (_, alumnoId, _, claseId) = api.Sembrar();
 
         var abierta = await api.Como(alumnoId, "Alumno")
-            .PostAsJsonAsync($"/api/v1/clases/{claseId}/conversacion", new { agenteId = "claude" });
+            .PostAsJsonAsync($"/api/v1/clases/{claseId}/conversacion", new { agenteId = "openrouter" });
 
         var cuerpo = await abierta.Content.ReadFromJsonAsync<JsonElement>();
         var conversacionId = cuerpo.GetProperty("conversacionId").GetString();
@@ -82,27 +82,16 @@ public class ApiTests
         Assert.Equal(HttpStatusCode.OK, examen.StatusCode);
         var examenId = (await examen.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("examenId").GetString();
 
-        var pregunta = await docente.PostAsJsonAsync($"/api/v1/examenes/{examenId}/preguntas", new
-        {
-            enunciado = "Que funcion evita el desvanecimiento del gradiente?",
-            justificacion = "ReLU mantiene gradiente 1 para entradas positivas.",
-            tema = "Activaciones",
-            nivel = (string?)null,
-            orden = 1,
-            aprobada = true,
-            alternativas = new[]
-            {
-                new { letra = "A", texto = "ReLU", esCorrecta = true },
-                new { letra = "B", texto = "Sigmoide", esCorrecta = false }
-            }
-        });
-
-        Assert.Equal(HttpStatusCode.Created, pregunta.StatusCode);
+        // Sin preguntas: la IA genera las de cada alumno al empezar (RF-04).
         Assert.Equal(HttpStatusCode.OK,
             (await docente.PostAsync($"/api/v1/examenes/{examenId}/publicar", null)).StatusCode);
 
+        // Y ya no hay forma de cargar ni aprobar preguntas a mano.
+        var manual = await docente.PostAsJsonAsync($"/api/v1/examenes/{examenId}/preguntas", new { enunciado = "x" });
+        Assert.False(manual.IsSuccessStatusCode);
+
         // 2. El alumno abre su chat.
-        var abierta = await alumno.PostAsJsonAsync($"/api/v1/clases/{claseId}/conversacion", new { agenteId = "claude" });
+        var abierta = await alumno.PostAsJsonAsync($"/api/v1/clases/{claseId}/conversacion", new { agenteId = "openrouter" });
         var conversacionId = (await abierta.Content.ReadFromJsonAsync<JsonElement>())
             .GetProperty("conversacionId").GetString();
 
@@ -142,23 +131,28 @@ public class ApiTests
         Assert.Equal("Clase 03 - Redes profundas", reporte.GetProperty("clase").GetString());
         Assert.True(reporte.TryGetProperty("distribucionNiveles", out _));
         Assert.True(reporte.TryGetProperty("dudasFueraDelMaterial", out _));
-        Assert.True(reporte.TryGetProperty("preguntasMasFalladas", out _));
+        Assert.True(reporte.TryGetProperty("temasMasFallados", out _));
     }
 
     [Fact]
-    public async Task El_docente_apaga_la_ampliacion_de_una_clase()
+    public async Task La_ampliacion_viene_apagada_y_el_docente_la_enciende_o_apaga_por_clase()
     {
         using var api = new ApiDePruebas();
         var (docenteId, _, _, claseId) = api.Sembrar();
 
-        var respuesta = await api.Como(docenteId, "Docente")
-            .PutAsJsonAsync($"/api/v1/clases/{claseId}/ampliacion", new { permitida = false });
+        // Por defecto el tutor se limita al material (RF-20).
+        using (var db = api.NuevoContexto())
+            Assert.False(db.Clases.Single().AmpliacionPermitida);
 
-        Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
-        var cuerpo = await respuesta.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.False(cuerpo.GetProperty("ampliacionPermitida").GetBoolean());
+        var docente = api.Como(docenteId, "Docente");
 
-        using var db = api.NuevoContexto();
-        Assert.False(db.Clases.Single().AmpliacionPermitida);
+        var encendida = await docente.PutAsJsonAsync($"/api/v1/clases/{claseId}/ampliacion", new { permitida = true });
+        Assert.Equal(HttpStatusCode.OK, encendida.StatusCode);
+        Assert.True((await encendida.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("ampliacionPermitida").GetBoolean());
+
+        await docente.PutAsJsonAsync($"/api/v1/clases/{claseId}/ampliacion", new { permitida = false });
+
+        using var despues = api.NuevoContexto();
+        Assert.False(despues.Clases.Single().AmpliacionPermitida);
     }
 }

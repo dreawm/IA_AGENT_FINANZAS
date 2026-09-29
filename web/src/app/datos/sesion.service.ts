@@ -1,41 +1,75 @@
-import { Injectable, signal } from '@angular/core';
-import { HttpInterceptorFn } from '@angular/common/http';
+import { Injectable, computed, inject, signal } from '@angular/core';
+import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
+import { catchError, throwError } from 'rxjs';
 
-const CLAVE_USUARIO = 'tutor.usuarioId';
-const CLAVE_ROL = 'tutor.rol';
+export type Rol = 'Alumno' | 'Docente' | 'Admin';
 
-/**
- * Identidad del usuario. En producción la pone el login OIDC y el token viaja en el
- * Authorization; en desarrollo se usan las cabeceras de prueba de la API.
- */
-@Injectable({ providedIn: 'root' })
-export class SesionService {
-  readonly usuarioId = signal(localStorage.getItem(CLAVE_USUARIO) ?? '');
-  readonly rol = signal(localStorage.getItem(CLAVE_ROL) ?? 'Alumno');
+export interface UsuarioSesion {
+  id: string;
+  nombre: string;
+  email: string;
+  rol: Rol;
+}
 
-  establecer(usuarioId: string, rol: string): void {
-    this.usuarioId.set(usuarioId);
-    this.rol.set(rol);
-    localStorage.setItem(CLAVE_USUARIO, usuarioId);
-    localStorage.setItem(CLAVE_ROL, rol);
-  }
+export interface Sesion {
+  token: string;
+  usuario: UsuarioSesion;
+}
 
-  cabeceras(): Record<string, string> {
-    const id = this.usuarioId();
-    return id ? { 'X-Usuario-Id': id, 'X-Usuario-Rol': this.rol() } : {};
+const CLAVE = 'tutor.sesion';
+
+/** La sesión dura lo que la pestaña: sirve para ir a OpenRouter y volver sin perderla. */
+function leer(): Sesion | null {
+  try {
+    const guardada = sessionStorage.getItem(CLAVE);
+    return guardada ? (JSON.parse(guardada) as Sesion) : null;
+  } catch {
+    return null;
   }
 }
 
-export const interceptorSesion: HttpInterceptorFn = (peticion, siguiente) => {
-  const usuarioId = localStorage.getItem(CLAVE_USUARIO);
-  if (!usuarioId) return siguiente(peticion);
+/**
+ * Identidad del usuario (RF-31): la da el inicio de sesión con Microsoft o Google, y el rol
+ * lo decide la plataforma. La API la reconoce por el token de sesión que ella misma firmó.
+ */
+@Injectable({ providedIn: 'root' })
+export class SesionService {
+  readonly sesion = signal<Sesion | null>(leer());
+  readonly usuario = computed(() => this.sesion()?.usuario ?? null);
+  readonly usuarioId = computed(() => this.usuario()?.id ?? '');
 
-  return siguiente(
-    peticion.clone({
-      setHeaders: {
-        'X-Usuario-Id': usuarioId,
-        'X-Usuario-Rol': localStorage.getItem(CLAVE_ROL) ?? 'Alumno',
-      },
+  /** El docente hace de administrador: alterna entre su panel y la gestión de usuarios. */
+  readonly verUsuarios = signal(false);
+
+  establecer(sesion: Sesion): void {
+    this.sesion.set(sesion);
+    sessionStorage.setItem(CLAVE, JSON.stringify(sesion));
+  }
+
+  salir(): void {
+    this.sesion.set(null);
+    this.verUsuarios.set(false);
+    sessionStorage.removeItem(CLAVE);
+    sessionStorage.removeItem('tutor.openrouter.automatico');
+    history.replaceState(null, '', '/');
+  }
+
+  /** Para las peticiones que no pasan por HttpClient (los flujos SSE con fetch). */
+  cabeceras(): Record<string, string> {
+    const token = this.sesion()?.token;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+}
+
+/** Añade la sesión a cada petición; si la API ya no la reconoce (venció), se vuelve a entrar. */
+export const interceptorSesion: HttpInterceptorFn = (peticion, siguiente) => {
+  const sesion = inject(SesionService);
+  const token = sesion.sesion()?.token;
+
+  return siguiente(token ? peticion.clone({ setHeaders: { Authorization: `Bearer ${token}` } }) : peticion).pipe(
+    catchError((error: unknown) => {
+      if (token && error instanceof HttpErrorResponse && error.status === 401) sesion.salir();
+      return throwError(() => error);
     }),
   );
 };

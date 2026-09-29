@@ -11,7 +11,7 @@ public class FlujoExamenTests
     public async Task El_examen_completo_por_chat_califica_y_fija_el_nivel()
     {
         using var banco = new BancoDePruebas().Sembrar();
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
         await banco.Tutor.IniciarExamenAsync(conversacion.Id);
 
         var preguntas = banco.Db.Preguntas.OrderBy(p => p.Orden).ToList();
@@ -44,7 +44,7 @@ public class FlujoExamenTests
     public async Task En_modo_AlFinal_el_agente_no_recibe_si_acerto()
     {
         using var banco = new BancoDePruebas().Sembrar(feedback: ModoFeedback.AlFinal);
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
         await banco.Tutor.IniciarExamenAsync(conversacion.Id);
 
         var pregunta = banco.Db.Preguntas.OrderBy(p => p.Orden).First();
@@ -61,7 +61,7 @@ public class FlujoExamenTests
     public async Task En_modo_Inmediato_el_agente_recibe_la_correccion_al_registrar()
     {
         using var banco = new BancoDePruebas().Sembrar(feedback: ModoFeedback.Inmediato);
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
         await banco.Tutor.IniciarExamenAsync(conversacion.Id);
 
         var pregunta = banco.Db.Preguntas.OrderBy(p => p.Orden).First();
@@ -77,7 +77,7 @@ public class FlujoExamenTests
     public async Task La_siguiente_pregunta_no_expone_cual_es_la_correcta()
     {
         using var banco = new BancoDePruebas().Sembrar();
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
         await banco.Tutor.IniciarExamenAsync(conversacion.Id);
 
         banco.Proveedor.LlamaHerramienta(Herramientas.ObtenerSiguientePregunta, new { });
@@ -95,7 +95,7 @@ public class FlujoExamenTests
     public async Task Una_respuesta_registrada_es_inmutable()
     {
         using var banco = new BancoDePruebas().Sembrar();
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
         await banco.Tutor.IniciarExamenAsync(conversacion.Id);
 
         var pregunta = banco.Db.Preguntas.OrderBy(p => p.Orden).First();
@@ -113,7 +113,7 @@ public class FlujoExamenTests
     public async Task El_tutor_registra_las_dudas_que_el_material_no_cubre()
     {
         using var banco = new BancoDePruebas().Sembrar();
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
 
         banco.Proveedor.LlamaHerramienta(Herramientas.RegistrarDudaSinCobertura, new
         {
@@ -135,7 +135,7 @@ public class FlujoExamenTests
     public async Task El_diagnostico_del_tutor_llena_temas_debiles_sin_mover_el_nivel()
     {
         using var banco = new BancoDePruebas().Sembrar();
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
         await banco.Tutor.IniciarExamenAsync(conversacion.Id);
 
         var preguntas = banco.Db.Preguntas.OrderBy(p => p.Orden).ToList();

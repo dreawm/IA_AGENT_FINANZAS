@@ -31,6 +31,7 @@ public sealed class AgenteTutorService(
     IServicioExamen examen,
     IProveedorLlmFactory proveedores,
     IBovedaCredenciales credenciales,
+    IGeneradorExamen generador,
     IRelojSistema reloj,
     ILogger<AgenteTutorService> log) : IAgenteTutorService
 {
@@ -75,10 +76,24 @@ public sealed class AgenteTutorService(
             throw new ExamenException("examen_en_curso", "Ya tienes el examen en curso.");
 
         var agente = await ExigirAgenteAsync(conversacion.AgenteId, ct);
-        await ExigirCredencialAsync(conversacion.AlumnoId, agente, ct);
+
+        var clave = await credenciales.ClaveParaAsync(conversacion.AlumnoId, agente.Id, ct)
+            ?? throw new ExamenException("sin_credencial",
+                $"Conecta tu credencial de {agente.NombreVisible} antes de empezar el examen.");
+
+        var material = await contexto.ObtenerAsync(conversacion.ClaseId, ct);
+        if (material.Tokens == 0)
+            throw new ExamenException("sin_material",
+                "Esta clase todavía no tiene material: el examen se arma a partir de él.");
+
+        // El examen de cada alumno lo genera la IA con su propia cuenta, a partir del
+        // material de la clase (RF-04); el servidor lo valida antes de crear el intento.
+        var proveedor = proveedores.Obtener(agente.Id, clave);
 
         var intento = await examen.IniciarIntentoAsync(
-            conversacion.ClaseId, conversacion.AlumnoId, agente.Id, agente.Modelo, ct);
+            conversacion.ClaseId, conversacion.AlumnoId, agente.Id, agente.Modelo,
+            (config, c) => GenerarAsync(proveedor, agente, conversacion.AlumnoId, material, config.PreguntasPorIntento, c),
+            ct);
 
         conversacion.IntentoId = intento.Id;
         conversacion.Modo = ModoConversacion.Evaluacion;
@@ -206,6 +221,11 @@ public sealed class AgenteTutorService(
                     await credenciales.MarcarInvalidaAsync(conversacion.AlumnoId, agente.Id, ct);
                     yield return new EventoAviso("credencial_rechazada",
                         $"{agente.NombreVisible} rechazó tu credencial. Vuelve a conectarla para seguir.");
+                }
+                else if (error.LimiteDeUso)
+                {
+                    // La credencial sigue siendo buena: solo se acabo el cupo (RF-30).
+                    yield return new EventoAviso("limite_de_uso", MensajeLimite(agente.NombreVisible, error, "Tu avance está guardado."));
                 }
                 else
                 {
@@ -344,11 +364,50 @@ public sealed class AgenteTutorService(
         await db.Agentes.FirstOrDefaultAsync(a => a.Id == agenteId && a.Habilitado, ct)
         ?? throw new ExamenException("agente_no_disponible", "Ese agente no esta habilitado.");
 
-    /// <summary>Sin credencial conectada no se puede iniciar un intento (RF-27).</summary>
-    private async Task ExigirCredencialAsync(Guid alumnoId, AgenteIA agente, CancellationToken ct)
+
+    /// <summary>
+    /// Traduce un fallo del generador a lo que ve el alumno, con las mismas reglas que el
+    /// chat: clave rechazada se marca invalida (RF-28), cupo agotado no (RF-30).
+    /// </summary>
+    private async Task<IReadOnlyList<Pregunta>> GenerarAsync(
+        ILlmProvider proveedor, AgenteIA agente, Guid alumnoId, ContextoClase material, int cantidad, CancellationToken ct)
     {
-        if (await credenciales.ClaveParaAsync(alumnoId, agente.Id, ct) is null)
-            throw new ExamenException("sin_credencial",
-                $"Conecta tu credencial de {agente.NombreVisible} antes de empezar el examen.");
+        try
+        {
+            return await generador.GenerarAsync(proveedor, agente.Modelo, material, cantidad, ct);
+        }
+        catch (GeneracionExamenException ex) when (ex.Error?.CredencialRechazada == true)
+        {
+            await credenciales.MarcarInvalidaAsync(alumnoId, agente.Id, ct);
+            throw new ExamenException("credencial_rechazada",
+                $"{agente.NombreVisible} rechazó tu credencial. Vuelve a conectarla para seguir.");
+        }
+        catch (GeneracionExamenException ex) when (ex.Error?.LimiteDeUso == true)
+        {
+            throw new ExamenException("limite_de_uso", MensajeLimite(agente.NombreVisible, ex.Error, "No se gastó ningún intento."));
+        }
+        catch (GeneracionExamenException ex)
+        {
+            log.LogWarning(ex, "No se pudo generar el examen con {Agente}: {Detalle}", agente.Id, ex.Error?.Mensaje);
+            throw new ExamenException("examen_no_generado",
+                "No se pudo preparar tu examen. No se gastó ningún intento: vuelve a intentarlo.");
+        }
+    }
+
+    /// <summary>
+    /// El avance no se pierde: lo guarda el servidor, no el proveedor. Un modelo gratuito
+    /// saturado no es culpa del cupo del alumno, y se dice así.
+    /// </summary>
+    private string MensajeLimite(string agente, ErrorProveedor error, string avance)
+    {
+        if (error.Saturado)
+            return "El modelo gratuito está saturado en este momento (le pasa a todos los que lo usan, " +
+                   $"no es tu cupo). Vuelve a intentarlo en unos segundos. {avance}";
+
+        var cuando = error.ReintentarEn is DateTimeOffset momento && momento > reloj.Ahora
+            ? $"Podrás seguir en unos {Math.Max(1, (int)Math.Ceiling((momento - reloj.Ahora).TotalMinutes))} min"
+            : "Podrás seguir más tarde";
+
+        return $"Se acabó tu cupo de uso en {agente}. {cuando}. {avance}";
     }
 }

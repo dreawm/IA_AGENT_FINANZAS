@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using TutorPreClase.Api.Seguridad;
 using TutorPreClase.Api.Sse;
 using TutorPreClase.Application.Abstracciones;
@@ -7,6 +9,7 @@ using TutorPreClase.Application.Evaluacion;
 using TutorPreClase.Application.Llm;
 using TutorPreClase.Application.Tutor;
 using TutorPreClase.Domain.Entidades;
+using TutorPreClase.Infrastructure.Contenido;
 
 namespace TutorPreClase.Api.Endpoints;
 
@@ -21,7 +24,12 @@ public static class EndpointsAlumno
         var grupo = app.MapGroup("/api/v1").RequireAuthorization();
 
         grupo.MapGet("/agentes", async (
-            HttpContext http, IAppDbContext db, IBovedaCredenciales boveda, CancellationToken ct) =>
+            HttpContext http,
+            IAppDbContext db,
+            IBovedaCredenciales boveda,
+            IOptions<OpcionesAgentes> opciones,
+            IProveedorLlmFactory proveedores,
+            CancellationToken ct) =>
         {
             var conectados = await boveda.AgentesConectadosAsync(http.User.Id(), ct);
 
@@ -31,13 +39,16 @@ public static class EndpointsAlumno
                 .Select(a => new { id = a.Id, nombre = a.NombreVisible, descripcion = a.Descripcion, consola = a.UrlConsola })
                 .ToListAsync(ct);
 
-            // Se listan todos los habilitados: el alumno necesita ver cual puede conectar.
-            return Results.Ok(agentes.Select(a => new
+            // Se listan los habilitados que tienen proveedor: el alumno necesita ver cual puede
+            // conectar, y un agente retirado que siga en la base no debe ofrecerse.
+            return Results.Ok(agentes.Where(a => proveedores.Existe(a.id)).Select(a => new
             {
                 a.id,
                 a.nombre,
                 a.descripcion,
                 a.consola,
+                // "OAuth": la web ofrece iniciar sesion en lugar del campo para pegar la clave.
+                conexion = opciones.Value.TryGetValue(a.id, out var o) ? o.Conexion : ConexionAgente.Clave,
                 conectado = conectados.Contains(a.id)
             }));
         });
@@ -71,6 +82,61 @@ public static class EndpointsAlumno
                 .ToListAsync(ct);
 
             return Results.Ok(clases);
+        });
+
+        // La web escucha aqui y se actualiza solo cuando el docente cambia el material de
+        // un curso del alumno (SDD §6.1). El latido mantiene viva la conexion en proxies.
+        grupo.MapGet("/alumno/novedades", async (
+            HttpContext http, IAppDbContext db, IAvisosContenido avisos, CancellationToken ct) =>
+        {
+            var alumnoId = http.User.Id();
+            EscritorSse.PrepararCabeceras(http.Response);
+
+            var cambios = avisos.EscucharAsync(ct).GetAsyncEnumerator(ct);
+            var siguiente = cambios.MoveNextAsync().AsTask();
+
+            try
+            {
+                await http.Response.WriteAsync(": conectado\n\n", ct);
+                await http.Response.Body.FlushAsync(ct);
+
+                while (true)
+                {
+                    if (await Task.WhenAny(siguiente, Task.Delay(TimeSpan.FromSeconds(25), ct)) != siguiente)
+                    {
+                        await http.Response.WriteAsync(": latido\n\n", ct);
+                        await http.Response.Body.FlushAsync(ct);
+                        continue;
+                    }
+
+                    if (!await siguiente) break;
+                    var cambio = cambios.Current;
+
+                    if (await db.Matriculas.AnyAsync(m => m.UsuarioId == alumnoId && m.CursoId == cambio.CursoId, ct))
+                    {
+                        var datos = JsonSerializer.Serialize(new { cursoId = cambio.CursoId, clases = cambio.Clases },
+                            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+                        await http.Response.WriteAsync($"event: contenido\ndata: {datos}\n\n", ct);
+                        await http.Response.Body.FlushAsync(ct);
+                    }
+
+                    siguiente = cambios.MoveNextAsync().AsTask();
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // El alumno cerro la pagina.
+            }
+            finally
+            {
+                // Un iterador async no se puede liberar con un MoveNextAsync en curso: se
+                // espera a que termine (al cerrar la pagina lo cancela el mismo token).
+                try { await siguiente; } catch (OperationCanceledException) { }
+                await cambios.DisposeAsync();
+            }
+
+            return Results.Empty;
         });
 
         grupo.MapPost("/clases/{claseId:guid}/conversacion", async (

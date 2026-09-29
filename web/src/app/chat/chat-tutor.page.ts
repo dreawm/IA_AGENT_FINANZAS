@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { EventoTutor, TutorStreamService } from '../datos/tutor-stream.service';
@@ -11,7 +11,11 @@ import {
   ModoChat,
   Progreso,
   separarAmpliacion,
+  tramos,
 } from '../datos/tutor.modelos';
+
+/** Marca de que ya se intentó conectar OpenRouter automáticamente en esta sesión. */
+const AUTOMATICO = 'tutor.openrouter.automatico';
 
 /**
  * Única pantalla del alumno (SDD §8): lista de clases y el chat. No hay formulario de
@@ -26,6 +30,7 @@ import {
 export class ChatTutorPage {
   private readonly api = inject(TutorStreamService);
   private readonly sesion = inject(SesionService);
+  private readonly destruccion = inject(DestroyRef);
 
   readonly clases = signal<ClaseResumen[]>([]);
   readonly agentes = signal<Agente[]>([]);
@@ -37,6 +42,8 @@ export class ChatTutorPage {
   readonly progreso = signal<Progreso | null>(null);
   readonly mensajes = signal<Mensaje[]>([]);
   readonly enviando = signal(false);
+  readonly preparandoExamen = signal(false);
+  readonly novedad = signal('');
   readonly error = signal<string>('');
   readonly borrador = signal('');
 
@@ -52,6 +59,25 @@ export class ChatTutorPage {
   readonly agentesConectados = computed(() => this.agentes().filter((a) => a.conectado));
   readonly sinAgente = computed(() => this.agentesConectados().length === 0);
 
+  /** La única forma de conectar un agente es iniciar sesión en el proveedor (RF-24, RF-29). */
+  readonly agentesOAuth = computed(() => this.agentes().filter((a) => a.conexion === 'OAuth'));
+
+  readonly tramos = tramos;
+
+  /** Una casilla por pregunta, marcada si ya está respondida: el examen es una secuencia. */
+  readonly casillas = computed(() => {
+    const p = this.progreso();
+    return p ? Array.from({ length: p.total }, (_, i) => i < p.respondidas) : [];
+  });
+
+  readonly tiempoRestante = computed(() => {
+    const segundos = this.progreso()?.segundosRestantes;
+    if (segundos === null || segundos === undefined) return null;
+
+    const s = Math.max(0, segundos);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  });
+
   readonly etiquetaModo = computed(() => {
     switch (this.modo()) {
       case 'Evaluacion':
@@ -64,14 +90,64 @@ export class ChatTutorPage {
   });
 
   async ngOnInit(): Promise<void> {
+    this.escucharNovedades();
     if (!this.usuarioId()) return;
+    await this.completarOAuth();
     await this.cargar();
   }
 
-  async identificarse(usuarioId: string): Promise<void> {
-    if (!usuarioId.trim()) return;
-    this.sesion.establecer(usuarioId.trim(), 'Alumno');
-    await this.cargar();
+  salir(): void {
+    this.sesion.salir();
+  }
+
+  /**
+   * La página no se refresca por su cuenta: solo cuando el servidor avisa que el docente
+   * subió o quitó material de un curso del alumno (SDD §6.1). Si la conexión se corta, se
+   * reconecta con espera creciente.
+   */
+  private escucharNovedades(): void {
+    const control = new AbortController();
+    this.destruccion.onDestroy(() => control.abort());
+
+    const esperar = (ms: number) => new Promise((listo) => setTimeout(listo, ms));
+
+    void (async () => {
+      let espera = 1_000;
+
+      while (!control.signal.aborted) {
+        if (this.usuarioId()) {
+          try {
+            for await (const cambio of this.api.novedades(this.sesion.cabeceras(), control.signal)) {
+              espera = 1_000;
+              await this.aplicarNovedad(cambio.clases);
+            }
+          } catch {
+            if (control.signal.aborted) return;
+          }
+        }
+
+        await esperar(espera);
+        espera = Math.min(espera * 2, 30_000);
+      }
+    })();
+  }
+
+  private async aplicarNovedad(clasesCambiadas: string[]): Promise<void> {
+    try {
+      const clases = await this.api.clases();
+      this.clases.set(clases);
+
+      // La clase abierta se reemplaza por su versión nueva (p. ej. si se publicó su examen).
+      const activa = this.claseActiva();
+      if (!activa) return;
+
+      this.claseActiva.set(clases.find((c) => c.claseId === activa.claseId) ?? activa);
+
+      if (clasesCambiadas.includes(activa.claseId))
+        this.novedad.set('Tu docente actualizó el material de esta clase. El tutor lo usará desde tu próxima pregunta.');
+    } catch {
+      // Si falla la lectura, el siguiente aviso la vuelve a intentar.
+    }
   }
 
   private async cargar(): Promise<void> {
@@ -90,6 +166,15 @@ export class ChatTutorPage {
       // Sin credencial, lo primero es conectarla: el chat no sirve de nada aún.
       this.panelCredenciales.set(this.sinAgente());
 
+      // RF-32: al entrar sin OpenRouter se le lleva directo a autorizarlo, una sola vez por
+      // sesión: si cancela o falla, se queda el botón y no se le reenvía en bucle.
+      const oauth = this.agentesOAuth()[0];
+      if (this.sinAgente() && oauth && !this.errorCredencial() && !sessionStorage.getItem(AUTOMATICO)) {
+        sessionStorage.setItem(AUTOMATICO, '1');
+        await this.entrarCon(oauth.id);
+        return;
+      }
+
       if (clases.length > 0 && !this.sinAgente()) await this.abrir(clases[0]);
     } catch {
       this.error.set('No se pudo cargar tus clases. ¿Está levantada la API?');
@@ -104,21 +189,43 @@ export class ChatTutorPage {
     return this.credenciales().find((c) => c.agenteId === agenteId);
   }
 
-  async conectar(agenteId: string, clave: string, campo: HTMLInputElement): Promise<void> {
-    if (!clave.trim() || this.conectando()) return;
+  /** Lleva al alumno a iniciar sesión en el proveedor (RF-29). */
+  async entrarCon(agenteId: string): Promise<void> {
+    if (this.conectando()) return;
 
     this.conectando.set(true);
     this.errorCredencial.set('');
 
     try {
-      await this.api.conectarCredencial(agenteId, clave.trim());
-      campo.value = '';
-      await this.refrescarCredenciales();
-
-      if (this.claseActiva() === null && this.clases().length > 0) await this.abrir(this.clases()[0]);
-      this.panelCredenciales.set(false);
+      const { url } = await this.api.iniciarOAuth(agenteId);
+      window.location.assign(url);
     } catch (e: any) {
-      this.errorCredencial.set(e?.error?.mensaje ?? 'No se pudo conectar esa credencial.');
+      this.errorCredencial.set(e?.error?.mensaje ?? 'No se pudo iniciar sesión.');
+      this.conectando.set(false);
+    }
+  }
+
+  /**
+   * El proveedor vuelve a /conectar/{agente}?code=…: se entrega el código a la API y se
+   * limpia la URL para que no quede en el historial (SDD §8.1).
+   */
+  private async completarOAuth(): Promise<void> {
+    const ruta = /^\/conectar\/([\w-]+)\/?$/.exec(location.pathname);
+    if (!ruta) return;
+
+    const codigo = new URLSearchParams(location.search).get('code');
+    history.replaceState(null, '', '/');
+
+    if (!codigo) {
+      this.errorCredencial.set('No se completó el inicio de sesión. Vuelve a intentarlo.');
+      return;
+    }
+
+    this.conectando.set(true);
+    try {
+      await this.api.canjearOAuth(ruta[1], codigo);
+    } catch (e: any) {
+      this.errorCredencial.set(e?.error?.mensaje ?? 'No se pudo conectar tu cuenta.');
     } finally {
       this.conectando.set(false);
     }
@@ -142,6 +249,7 @@ export class ChatTutorPage {
   async abrir(clase: ClaseResumen): Promise<void> {
     this.claseActiva.set(clase);
     this.error.set('');
+    this.novedad.set('');
     this.progreso.set(null);
 
     const conversacion = await this.api.abrirConversacion(clase.claseId, this.agenteActivo());
@@ -174,13 +282,36 @@ export class ChatTutorPage {
     this.agenteActivo.set(agenteId);
   }
 
+  /**
+   * La IA arma un examen propio para el alumno a partir del material (RF-04): puede tardar
+   * unos segundos, así que el chat lo dice mientras tanto.
+   */
   async comenzarExamen(): Promise<void> {
+    if (this.preparandoExamen()) return;
+
+    this.preparandoExamen.set(true);
+    this.error.set('');
+    this.mensajes.update((ms) => [
+      ...ms,
+      { rol: 'Agente', texto: 'Preparando tu examen con el material de la clase…', enCurso: true },
+    ]);
+
     try {
       const inicio = await this.api.iniciarExamen(this.conversacionId());
+      this.mensajes.update((ms) => ms.slice(0, -1));
       this.modo.set(inicio.modo);
       await this.enviar('Estoy listo para empezar el examen.');
-    } catch {
-      this.error.set('No se pudo iniciar el examen: revisa la ventana y tus intentos.');
+    } catch (e: any) {
+      this.mensajes.update((ms) => ms.slice(0, -1));
+      this.error.set(e?.error?.mensaje ?? 'No se pudo preparar tu examen. Vuelve a intentarlo.');
+
+      // Si la cuenta fue rechazada, hay que reconectarla antes de nada.
+      if (e?.error?.error === 'credencial_rechazada') {
+        this.panelCredenciales.set(true);
+        void this.refrescarCredenciales();
+      }
+    } finally {
+      this.preparandoExamen.set(false);
     }
   }
 
@@ -197,6 +328,7 @@ export class ChatTutorPage {
 
     this.enviando.set(true);
     this.error.set('');
+    this.novedad.set('');
 
     this.mensajes.update((ms) => [
       ...ms,
@@ -242,8 +374,9 @@ export class ChatTutorPage {
 
       case 'aviso':
         this.actualizarUltimo((m) => ({ ...m, aviso: evento.mensaje }));
-        // Credencial ausente o rechazada: hay que reconectarla antes de seguir.
-        if (evento.mensaje.includes('credencial')) {
+        // Credencial ausente o rechazada: hay que reconectarla antes de seguir. Un
+        // límite de uso no la invalida (RF-30): solo se avisa.
+        if (evento.codigo === 'sin_credencial' || evento.codigo === 'credencial_rechazada') {
           this.panelCredenciales.set(true);
           void this.refrescarCredenciales();
         }

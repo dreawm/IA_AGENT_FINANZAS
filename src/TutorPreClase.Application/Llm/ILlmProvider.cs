@@ -8,7 +8,7 @@ namespace TutorPreClase.Application.Llm;
 /// </summary>
 public interface ILlmProvider
 {
-    /// <summary>"claude" | "openai" | "kimi".</summary>
+    /// <summary>"openrouter"; la interfaz deja abierta la puerta a otro gateway.</summary>
     string Id { get; }
 
     IAsyncEnumerable<LlmEvento> StreamAsync(LlmSolicitud solicitud, CancellationToken ct);
@@ -38,4 +38,16 @@ public abstract record LlmEvento;
 public sealed record TextoParcial(string Texto) : LlmEvento;
 public sealed record LlamadaHerramienta(string Id, string Nombre, JsonElement Argumentos) : LlmEvento;
 public sealed record Fin(int TokensEntrada, int TokensSalida) : LlmEvento;
-public sealed record ErrorProveedor(string Mensaje, bool Reintentable, bool CredencialRechazada = false) : LlmEvento;
+/// <summary>
+/// Fallo del proveedor. `LimiteDeUso` es un 429: la credencial sigue siendo buena y el
+/// alumno puede volver cuando indique `ReintentarEn`, si el proveedor lo dijo (RF-30).
+/// `Saturado` distingue el 429 del modelo gratuito saturado para todos (se reintenta en
+/// segundos) del cupo propio del alumno agotado.
+/// </summary>
+public sealed record ErrorProveedor(
+    string Mensaje,
+    bool Reintentable,
+    bool CredencialRechazada = false,
+    bool LimiteDeUso = false,
+    DateTimeOffset? ReintentarEn = null,
+    bool Saturado = false) : LlmEvento;

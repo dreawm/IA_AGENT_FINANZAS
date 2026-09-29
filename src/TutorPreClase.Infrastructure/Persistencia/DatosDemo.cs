@@ -7,95 +7,62 @@ namespace TutorPreClase.Infrastructure.Persistencia;
 public sealed record IdentidadesDemo(Guid DocenteId, Guid AlumnoId, Guid CursoId, Guid ClaseId);
 
 /// <summary>
-/// Datos de demostracion para levantar la plataforma y probarla de punta a punta:
-/// un curso, una clase con examen publicado, un docente y una alumna matriculada.
+/// Datos de demostracion para probar la plataforma de punta a punta. No inventan cursos
+/// ni material: los cursos y clases salen de la carpeta de contenido (SDD §6.1). Aqui solo
+/// se crean un docente, una alumna y un administrador, y los dos primeros se matriculan en
+/// todos los cursos. Los examenes
+/// tampoco: cada clase tiene el suyo y la IA genera las preguntas de cada alumno (RF-04).
 /// Se activa con Demo:Sembrar = true y nunca deberia usarse en produccion.
 /// </summary>
 public static class DatosDemo
 {
     private const string EmailDocente = "docente.demo@uni.edu";
     private const string EmailAlumna = "alumna.demo@uni.edu";
+    private const string EmailAdmin = "admin.demo@uni.edu";
 
     public static async Task<IdentidadesDemo> SembrarAsync(AppDbContext db, ILogger log, CancellationToken ct = default)
     {
-        var docente = await db.Usuarios.FirstOrDefaultAsync(u => u.Email == EmailDocente, ct);
+        var docente = await UsuarioAsync(db, EmailDocente, "Docente Demo", RolUsuario.Docente, ct);
+        var alumna = await UsuarioAsync(db, EmailAlumna, "Alumna Demo", RolUsuario.Alumno, ct);
+        await UsuarioAsync(db, EmailAdmin, "Administración Demo", RolUsuario.Admin, ct);
 
-        if (docente is not null)
+        // Tambien los cursos que aparezcan despues en la carpeta, al reiniciar.
+        foreach (var cursoId in await db.Cursos.Select(c => c.Id).ToListAsync(ct))
         {
-            var alumnaExistente = await db.Usuarios.FirstAsync(u => u.Email == EmailAlumna, ct);
-            var claseExistente = await db.Clases.FirstAsync(ct);
-
-            return Anunciar(log, new IdentidadesDemo(
-                docente.Id, alumnaExistente.Id, claseExistente.CursoId, claseExistente.Id));
+            await MatricularAsync(db, docente, cursoId, ct);
+            await MatricularAsync(db, alumna, cursoId, ct);
         }
-
-        docente = new Usuario { Email = EmailDocente, Nombre = "Docente Demo", Rol = RolUsuario.Docente };
-        var alumna = new Usuario { Email = EmailAlumna, Nombre = "Alumna Demo", Rol = RolUsuario.Alumno };
-        var curso = new Curso { Codigo = "IA101", Nombre = "Redes Neuronales", Periodo = "2026-2" };
-
-        var clase = new Clase
-        {
-            CursoId = curso.Id,
-            Titulo = "Clase 03 - Redes profundas",
-            Inicio = DateTimeOffset.UtcNow.AddDays(1),
-            Orden = 3,
-            AmpliacionPermitida = true
-        };
-
-        var examen = new Examen
-        {
-            ClaseId = clase.Id,
-            AbreEn = DateTimeOffset.UtcNow.AddHours(-1),
-            CierraEn = DateTimeOffset.UtcNow.AddDays(1),
-            MaxIntentos = 3,
-            ModoFeedback = ModoFeedback.AlFinal,
-            Publicado = true
-        };
-
-        examen.Preguntas.Add(new Pregunta
-        {
-            Enunciado = "Que funcion de activacion evita el desvanecimiento del gradiente en capas profundas?",
-            Justificacion = "ReLU mantiene gradiente 1 para entradas positivas.",
-            Tema = "Funciones de activacion",
-            Orden = 1,
-            Origen = OrigenPregunta.IA,
-            Aprobada = true,
-            Alternativas =
-            [
-                new Alternativa { Letra = "A", Texto = "ReLU", EsCorrecta = true },
-                new Alternativa { Letra = "B", Texto = "Sigmoide", EsCorrecta = false },
-                new Alternativa { Letra = "C", Texto = "Tanh", EsCorrecta = false },
-                new Alternativa { Letra = "D", Texto = "Softmax", EsCorrecta = false }
-            ]
-        });
-
-        examen.Preguntas.Add(new Pregunta
-        {
-            Enunciado = "Que problema presenta la sigmoide en redes profundas?",
-            Justificacion = "Satura en los extremos y el gradiente se desvanece.",
-            Tema = "Funciones de activacion",
-            Orden = 2,
-            Origen = OrigenPregunta.IA,
-            Aprobada = true,
-            Alternativas =
-            [
-                new Alternativa { Letra = "A", Texto = "Satura y desvanece el gradiente", EsCorrecta = true },
-                new Alternativa { Letra = "B", Texto = "No es derivable", EsCorrecta = false },
-                new Alternativa { Letra = "C", Texto = "Solo admite entradas positivas", EsCorrecta = false },
-                new Alternativa { Letra = "D", Texto = "No converge nunca", EsCorrecta = false }
-            ]
-        });
-
-        db.Usuarios.AddRange(docente, alumna);
-        db.Cursos.Add(curso);
-        db.Clases.Add(clase);
-        db.Examenes.Add(examen);
-        db.Matriculas.Add(new Matricula { UsuarioId = alumna.Id, CursoId = curso.Id, RolEnCurso = RolUsuario.Alumno });
-        db.Matriculas.Add(new Matricula { UsuarioId = docente.Id, CursoId = curso.Id, RolEnCurso = RolUsuario.Docente });
 
         await db.SaveChangesAsync(ct);
 
-        return Anunciar(log, new IdentidadesDemo(docente.Id, alumna.Id, curso.Id, clase.Id));
+        var primera = await db.Clases
+            .OrderBy(c => c.Curso!.Codigo).ThenBy(c => c.Orden)
+            .FirstOrDefaultAsync(ct);
+
+        if (primera is null)
+        {
+            log.LogWarning("Demo sin clases: la carpeta de contenido esta vacia o no configurada");
+            return Anunciar(log, new IdentidadesDemo(docente.Id, alumna.Id, Guid.Empty, Guid.Empty));
+        }
+
+        return Anunciar(log, new IdentidadesDemo(docente.Id, alumna.Id, primera.CursoId, primera.Id));
+    }
+
+    private static async Task<Usuario> UsuarioAsync(
+        AppDbContext db, string email, string nombre, RolUsuario rol, CancellationToken ct)
+    {
+        var usuario = await db.Usuarios.FirstOrDefaultAsync(u => u.Email == email, ct);
+        if (usuario is not null) return usuario;
+
+        usuario = new Usuario { Email = email, Nombre = nombre, Rol = rol };
+        db.Usuarios.Add(usuario);
+        return usuario;
+    }
+
+    private static async Task MatricularAsync(AppDbContext db, Usuario usuario, Guid cursoId, CancellationToken ct)
+    {
+        if (await db.Matriculas.AnyAsync(m => m.UsuarioId == usuario.Id && m.CursoId == cursoId, ct)) return;
+        db.Matriculas.Add(new Matricula { UsuarioId = usuario.Id, CursoId = cursoId, RolEnCurso = usuario.Rol });
     }
 
     private static IdentidadesDemo Anunciar(ILogger log, IdentidadesDemo ids)

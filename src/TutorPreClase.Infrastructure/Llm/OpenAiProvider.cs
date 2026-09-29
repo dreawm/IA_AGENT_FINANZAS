@@ -8,8 +8,8 @@ using TutorPreClase.Application.Llm;
 namespace TutorPreClase.Infrastructure.Llm;
 
 /// <summary>
-/// Adaptador de la API de OpenAI (function calling, streaming). En la web se muestra
-/// como "ChatGPT". Kimi hereda de aqui cambiando solo la BaseUrl (SDD §5.8).
+/// Adaptador del formato de chat de OpenAI (function calling, streaming). Es la base de
+/// OpenRouter, que lo habla tal cual bajo otra ruta (SDD §5.8).
 /// </summary>
 public class OpenAiProvider(
     HttpClient http,
@@ -21,10 +21,19 @@ public class OpenAiProvider(
 
     protected OpcionesAgente Opciones { get; } = opciones;
 
+    /// <summary>Ruta del chat relativa a la BaseUrl; cada compatible la puede mover.</summary>
+    protected virtual string RutaChat => "/v1/chat/completions";
+
+    /// <summary>Preferencias de enrutado que algunos compatibles aceptan; null las omite.</summary>
+    protected virtual object? PreferenciasProveedor => null;
+
+    /// <summary>Modelos de respaldo que el compatible prueba si falla el principal; null los omite.</summary>
+    protected virtual IReadOnlyList<string>? Respaldo(string modelo) => null;
+
     public async IAsyncEnumerable<LlmEvento> StreamAsync(
         LlmSolicitud solicitud, [EnumeratorCancellation] CancellationToken ct)
     {
-        using var peticion = new HttpRequestMessage(HttpMethod.Post, "/v1/chat/completions")
+        using var peticion = new HttpRequestMessage(HttpMethod.Post, RutaChat)
         {
             Content = JsonContent.Create(Cuerpo(solicitud), options: MapeoLlm.Json)
         };
@@ -167,10 +176,12 @@ public class OpenAiProvider(
         return new
         {
             model = s.Modelo,
+            models = Respaldo(s.Modelo),
             max_tokens = s.MaxTokens,
             temperature = s.Temperatura,
             stream = true,
             stream_options = new { include_usage = true },
+            provider = PreferenciasProveedor,
             messages = mensajes,
             tools = s.Herramientas.Select(h => new
             {
@@ -186,6 +197,28 @@ public class OpenAiProvider(
     }
 }
 
-/// <summary>Kimi (Moonshot) es compatible con OpenAI: solo cambia la BaseUrl.</summary>
-public sealed class KimiProvider(HttpClient http, OpcionesAgente opciones, ILogger<KimiProvider> logger)
-    : OpenAiProvider(http, opciones, logger, "kimi");
+/// <summary>
+/// OpenRouter es compatible con OpenAI bajo `/api/v1`. Sirve los modelos gratuitos
+/// (`:free`) que el alumno usa sin pagar, tras iniciar sesion por OAuth (RF-29).
+/// </summary>
+public sealed class OpenRouterProvider(HttpClient http, OpcionesAgente opciones, ILogger<OpenRouterProvider> logger)
+    : OpenAiProvider(http, opciones, logger, "openrouter")
+{
+    protected override string RutaChat => "/api/v1/chat/completions";
+
+    /// <summary>
+    /// Solo proveedores que no guardan ni entrenan con los prompts (RNF-11): lo garantiza
+    /// la plataforma en cada llamada, sin que el alumno toque su configuracion de privacidad.
+    /// </summary>
+    protected override object? PreferenciasProveedor => new { data_collection = "deny" };
+
+    /// <summary>
+    /// Si el modelo gratuito está saturado (429 del pool compartido) o caído, OpenRouter
+    /// pasa en la misma llamada al siguiente de la lista, con las mismas preferencias.
+    /// </summary>
+    protected override IReadOnlyList<string>? Respaldo(string modelo)
+    {
+        var alternativos = Opciones.ModelosAlternativos.Where(m => m != modelo).ToList();
+        return alternativos.Count == 0 ? null : [modelo, .. alternativos];
+    }
+}

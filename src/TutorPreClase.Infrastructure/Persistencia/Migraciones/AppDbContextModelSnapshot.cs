@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using TutorPreClase.Infrastructure.Persistencia;
 
 #nullable disable
@@ -15,44 +16,48 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
+            modelBuilder
+                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("TutorPreClase.Domain.Entidades.AgenteIA", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("BaseUrl")
                         .IsRequired()
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(300)");
 
                     b.Property<string>("Descripcion")
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(300)");
 
                     b.Property<bool>("Habilitado")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Modelo")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("NombreVisible")
                         .IsRequired()
                         .HasMaxLength(60)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(60)");
 
                     b.Property<string>("Proveedor")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("UrlConsola")
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(300)");
 
                     b.HasKey("Id");
 
@@ -63,22 +68,22 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<bool>("EsCorrecta")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Letra")
                         .IsRequired()
                         .HasMaxLength(1)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1)");
 
                     b.Property<Guid>("PreguntaId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Texto")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -91,40 +96,40 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("BlobUrl")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("text");
 
                     b.Property<Guid>("ClaseId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
-                    b.Property<long>("CreadoEn")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreadoEn")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Error")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("text");
 
                     b.Property<string>("Estado")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("HashSha256")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(400)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(400)");
 
                     b.Property<string>("Tipo")
                         .IsRequired()
                         .HasMaxLength(10)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(10)");
 
                     b.HasKey("Id");
 
@@ -138,26 +143,26 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<bool>("AmpliacionPermitida")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasDefaultValue(true);
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<Guid>("CursoId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
-                    b.Property<long>("Inicio")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("Inicio")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("Orden")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("Titulo")
                         .IsRequired()
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(300)");
 
                     b.HasKey("Id");
 
@@ -170,29 +175,29 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("AgenteId")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<Guid>("AlumnoId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("ClaseId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
-                    b.Property<long>("CreadaEn")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreadaEn")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("IntentoId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Modo")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.HasKey("Id");
 
@@ -209,35 +214,42 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("AgenteId")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("ClaveCifrada")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("text");
 
-                    b.Property<long>("CreadaEn")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreadaEn")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Estado")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
-                    b.Property<long?>("UltimoUsoEn")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("Origen")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Pegada");
+
+                    b.Property<DateTimeOffset?>("UltimoUsoEn")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Ultimos4")
                         .IsRequired()
                         .HasMaxLength(4)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(4)");
 
                     b.Property<Guid>("UsuarioId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
@@ -251,22 +263,22 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Codigo")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("Periodo")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.HasKey("Id");
 
@@ -277,27 +289,27 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("ClaseId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("ConversacionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
-                    b.Property<long>("CreadoEn")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreadoEn")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("RespondidaConAmpliacion")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Tema")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("Texto")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -310,30 +322,35 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
-                    b.Property<long>("AbreEn")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("AbreEn")
+                        .HasColumnType("timestamp with time zone");
 
-                    b.Property<long>("CierraEn")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CierraEn")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("ClaseId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<int>("MaxIntentos")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int?>("MinutosLimite")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("ModoFeedback")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("PreguntasPorIntento")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(6);
 
                     b.Property<bool>("Publicado")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.HasKey("Id");
 
@@ -347,41 +364,41 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("AgenteId")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<Guid>("AlumnoId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
-                    b.Property<long?>("Envio")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("Envio")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Estado")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<Guid>("ExamenId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
-                    b.Property<long>("Inicio")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("Inicio")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Modelo")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<int?>("Porcentaje")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<decimal?>("Puntaje")
                         .HasPrecision(4, 1)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("numeric(4,1)");
 
                     b.HasKey("Id");
 
@@ -393,15 +410,15 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
             modelBuilder.Entity("TutorPreClase.Domain.Entidades.Matricula", b =>
                 {
                     b.Property<Guid>("UsuarioId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("CursoId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("RolEnCurso")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.HasKey("UsuarioId", "CursoId");
 
@@ -414,46 +431,46 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("AgenteId")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<Guid>("ConversacionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
-                    b.Property<long>("CreadoEn")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreadoEn")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Fuentes")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("jsonb");
 
                     b.Property<string>("Herramienta")
                         .HasMaxLength(60)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(60)");
 
                     b.Property<Guid?>("PreguntaId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Rol")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("Texto")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("text");
 
                     b.Property<int>("TokensEntrada")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("TokensSalida")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<bool>("UsaAmpliacion")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.HasKey("Id");
 
@@ -466,30 +483,30 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
-                    b.Property<long>("ActualizadoEn")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("ActualizadoEn")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("AlumnoId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("ClaseId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Nivel")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("Origen")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("TemasDebiles")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("jsonb");
 
                     b.HasKey("Id");
 
@@ -503,23 +520,23 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("ArchivoId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("ClaseId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<int>("Pagina")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("Texto")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("text");
 
                     b.Property<int>("Tokens")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -535,42 +552,47 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<bool>("Aprobada")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Enunciado")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("text");
 
                     b.Property<Guid>("ExamenId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("IntentoId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Justificacion")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("text");
 
                     b.Property<string>("Nivel")
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<int>("Orden")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("Origen")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("Tema")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("ExamenId");
+
+                    b.HasIndex("IntentoId");
 
                     b.ToTable("pregunta", (string)null);
                 });
@@ -578,10 +600,10 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
             modelBuilder.Entity("TutorPreClase.Domain.Entidades.PreguntaReferencia", b =>
                 {
                     b.Property<Guid>("PreguntaId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("PaginaId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.HasKey("PreguntaId", "PaginaId");
 
@@ -594,26 +616,26 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("AlternativaId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
-                    b.Property<long>("CreadoEn")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreadoEn")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("EsCorrecta")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<Guid>("IntentoId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("PreguntaId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("TextoOriginalAlumno")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -629,25 +651,25 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("AgentePreferido")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("text");
 
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(320)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(320)");
 
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("Rol")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.HasKey("Id");
 
@@ -790,7 +812,14 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("TutorPreClase.Domain.Entidades.Intento", "Intento")
+                        .WithMany()
+                        .HasForeignKey("IntentoId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
                     b.Navigation("Examen");
+
+                    b.Navigation("Intento");
                 });
 
             modelBuilder.Entity("TutorPreClase.Domain.Entidades.PreguntaReferencia", b =>

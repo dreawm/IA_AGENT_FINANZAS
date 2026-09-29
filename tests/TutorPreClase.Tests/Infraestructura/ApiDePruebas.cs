@@ -75,25 +75,24 @@ public sealed class ApiDePruebas : WebApplicationFactory<Program>
         db.Matriculas.Add(new Matricula { UsuarioId = alumno.Id, CursoId = curso.Id, RolEnCurso = RolUsuario.Alumno });
         db.Agentes.Add(new AgenteIA
         {
-            Id = "claude",
-            NombreVisible = "Claude",
-            Proveedor = "Anthropic",
-            Modelo = "claude-sonnet-5",
-            BaseUrl = "https://api.anthropic.com",
-            UrlConsola = "https://console.anthropic.com/settings/keys",
+            Id = "openrouter",
+            NombreVisible = "OpenRouter (gratis)",
+            Proveedor = "OpenRouter",
+            Modelo = "qwen/qwen3.8-27b:free",
+            BaseUrl = "https://openrouter.ai",
             Habilitado = true
         });
 
         db.SaveChanges();
 
         // El alumno conecta su credencial BYOK, como en el flujo real.
-        ConectarCredencial(alumno.Id, "claude");
+        ConectarCredencial(alumno.Id, "openrouter");
 
         return (docente.Id, alumno.Id, curso.Id, clase.Id);
     }
 
     /// <summary>Conecta una credencial usando la boveda real de la aplicacion.</summary>
-    public void ConectarCredencial(Guid usuarioId, string agenteId, string clave = "sk-ant-de-prueba-0000-1234")
+    public void ConectarCredencial(Guid usuarioId, string agenteId, string clave = "sk-or-v1-de-prueba-0000-1234")
     {
         using var ambito = Services.CreateScope();
         var boveda = ambito.ServiceProvider.GetRequiredService<IBovedaCredenciales>();

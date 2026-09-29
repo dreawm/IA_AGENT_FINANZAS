@@ -9,11 +9,17 @@ export type EventoTutor =
   | { tipo: 'herramienta'; nombre: string; estado: string }
   | { tipo: 'progreso'; progreso: Progreso }
   | { tipo: 'fuentes'; fuentes: Fuente[] }
-  | { tipo: 'aviso'; mensaje: string }
+  | { tipo: 'aviso'; codigo: string; mensaje: string }
   | { tipo: 'fin'; usaAmpliacion: boolean }
   | { tipo: 'error'; mensaje: string; reintentable: boolean };
 
 const API = '/api/v1';
+
+/** El docente subió o quitó material en estas clases del curso. */
+export interface CambioContenido {
+  cursoId: string;
+  clases: string[];
+}
 
 /**
  * Consume los eventos SSE del tutor con `fetch` streaming (SDD §8.1). La web no
@@ -35,10 +41,17 @@ export class TutorStreamService {
     return firstValueFrom(this.http.get<Credencial[]>(`${API}/alumno/credenciales`));
   }
 
-  /** La clave se envía y se olvida: no pasa por localStorage (SDD §8.1). */
-  conectarCredencial(agenteId: string, clave: string) {
+  /** Pide a la API la URL de inicio de sesión; el verificador PKCE se queda en el servidor. */
+  iniciarOAuth(agenteId: string) {
     return firstValueFrom(
-      this.http.put<Credencial>(`${API}/alumno/credenciales/${agenteId}`, { clave }),
+      this.http.post<{ url: string }>(`${API}/alumno/credenciales/${agenteId}/oauth/inicio`, {}),
+    );
+  }
+
+  /** Entrega el código de un solo uso; la clave la canjea y la guarda la API. */
+  canjearOAuth(agenteId: string, code: string) {
+    return firstValueFrom(
+      this.http.post<Credencial>(`${API}/alumno/credenciales/${agenteId}/oauth/canje`, { code }),
     );
   }
 
@@ -97,7 +110,31 @@ export class TutorStreamService {
       return;
     }
 
-    const lector = respuesta.body.getReader();
+    for await (const bloque of this.bloques(respuesta.body)) {
+      const evento = this.interpretar(bloque);
+      if (evento) yield evento;
+    }
+  }
+
+  /**
+   * Avisos de que el docente cambió el material de un curso del alumno (SDD §6.1). La
+   * conexión queda abierta; termina si el servidor la corta o se aborta `señal`.
+   */
+  async *novedades(cabeceras: Record<string, string>, señal: AbortSignal): AsyncGenerator<CambioContenido> {
+    const respuesta = await fetch(`${API}/alumno/novedades`, { headers: cabeceras, signal: señal });
+    if (!respuesta.ok || !respuesta.body) throw new Error(`La API respondió ${respuesta.status}.`);
+
+    for await (const bloque of this.bloques(respuesta.body)) {
+      if (!bloque.startsWith('event: contenido')) continue; // latidos y comentarios
+
+      const datos = bloque.split('\n').find((l) => l.startsWith('data:'));
+      if (datos) yield JSON.parse(datos.slice(5)) as CambioContenido;
+    }
+  }
+
+  /** Parte un flujo SSE en eventos: se separan por una línea en blanco. */
+  private async *bloques(cuerpo: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+    const lector = cuerpo.getReader();
     const decodificador = new TextDecoder();
     let pendiente = '';
 
@@ -107,14 +144,9 @@ export class TutorStreamService {
 
       pendiente += decodificador.decode(value, { stream: true });
 
-      // Los eventos SSE se separan por línea en blanco.
       const bloques = pendiente.split('\n\n');
       pendiente = bloques.pop() ?? '';
-
-      for (const bloque of bloques) {
-        const evento = this.interpretar(bloque);
-        if (evento) yield evento;
-      }
+      yield* bloques;
     }
   }
 
@@ -148,7 +180,7 @@ export class TutorStreamService {
       case 'fuentes':
         return { tipo: 'fuentes', fuentes: cuerpo };
       case 'aviso':
-        return { tipo: 'aviso', mensaje: cuerpo.mensaje };
+        return { tipo: 'aviso', codigo: cuerpo.codigo, mensaje: cuerpo.mensaje };
       case 'fin':
         return { tipo: 'fin', usaAmpliacion: cuerpo.usaAmpliacion };
       case 'error':

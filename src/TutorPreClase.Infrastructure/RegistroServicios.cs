@@ -42,21 +42,27 @@ public static class RegistroServicios
         servicios.AddScoped<INivelService, NivelService>();
         servicios.AddScoped<IServicioExamen, ServicioExamen>();
         servicios.AddScoped<IEjecutorHerramientas, EjecutorHerramientas>();
+        servicios.AddSingleton<IGeneradorExamen>(new GeneradorExamen());
         servicios.AddScoped<IAgenteTutorService, AgenteTutorService>();
 
         servicios.AddSingleton<IAlmacenArchivos>(_ =>
             new AlmacenArchivosLocal(config["Almacen:Raiz"] ?? "almacen"));
         servicios.AddScoped<IServicioContenido, ServicioContenido>();
+        servicios.Configure<OpcionesCarpetaContenido>(config.GetSection(OpcionesCarpetaContenido.Seccion));
+        servicios.AddScoped<ISincronizadorCarpeta, SincronizadorCarpeta>();
+        servicios.AddSingleton<IAvisosContenido, AvisosContenidoEnMemoria>();
 
         servicios.AddSingleton<IExtractorTexto, ExtractorPdf>();
         servicios.AddSingleton<IExtractorTexto, ExtractorPptx>();
         servicios.AddSingleton<IExtractorTexto, ExtractorDocx>();
+        servicios.AddSingleton<IExtractorTexto, ExtractorXlsx>();
         servicios.AddSingleton<IExtractorTexto, ExtractorTextoPlano>();
         servicios.AddSingleton<IExtractorTextoFactory, ExtractorTextoFactory>();
 
         servicios.AddDataProtection();
         servicios.AddSingleton<IValidadorCredencial, ValidadorCredencial>();
         servicios.AddScoped<IBovedaCredenciales, BovedaCredenciales>();
+        servicios.AddScoped<IConexionOAuth, ConexionOpenRouter>();
         servicios.AddSingleton<IProveedorLlmFactory, ProveedorLlmFactory>();
         AgregarClientesLlm(servicios, config);
 

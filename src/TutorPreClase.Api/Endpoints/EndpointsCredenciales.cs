@@ -3,11 +3,12 @@ using TutorPreClase.Application.Llm;
 
 namespace TutorPreClase.Api.Endpoints;
 
-public sealed record ConectarCredencialPeticion(string Clave);
+public sealed record CanjeOAuthPeticion(string Code);
 
 /// <summary>
-/// Credenciales BYOK del alumno (SDD §7). Todo va contra el usuario del token: nadie
-/// puede leer ni tocar la credencial de otro, y la clave nunca se devuelve.
+/// Credenciales BYOK del alumno (SDD §7). La unica forma de conectar una es iniciar
+/// sesion en el proveedor (RF-24, RF-29): la plataforma no acepta claves pegadas. Todo va
+/// contra el usuario del token, y la clave nunca se devuelve.
 /// </summary>
 public static class EndpointsCredenciales
 {
@@ -23,31 +24,30 @@ public static class EndpointsCredenciales
             {
                 agenteId = c.AgenteId,
                 ultimos4 = c.Ultimos4,
+                origen = c.Origen.ToString(),
                 estado = c.Estado.ToString(),
                 creadaEn = c.CreadaEn,
                 ultimoUsoEn = c.UltimoUsoEn
             }));
         });
 
-        grupo.MapPut("/{agenteId}", async (
+        // Conexion por inicio de sesion en el proveedor, sin pegar clave (RF-29, SDD §5.1).
+        grupo.MapPost("/{agenteId}/oauth/inicio", async (
+            string agenteId, HttpContext http, IConexionOAuth oauth, CancellationToken ct) =>
+        {
+            var url = await oauth.IniciarAsync(http.User.Id(), agenteId, ct);
+            return Results.Ok(new { url });
+        });
+
+        grupo.MapPost("/{agenteId}/oauth/canje", async (
             string agenteId,
-            ConectarCredencialPeticion peticion,
+            CanjeOAuthPeticion peticion,
             HttpContext http,
-            IBovedaCredenciales boveda,
+            IConexionOAuth oauth,
             CancellationToken ct) =>
         {
-            if (string.IsNullOrWhiteSpace(peticion.Clave))
-                return Results.BadRequest(new { error = "clave_requerida", mensaje = "Pega tu credencial." });
-
-            var credencial = await boveda.ConectarAsync(http.User.Id(), agenteId, peticion.Clave, ct);
-
-            return Results.Ok(new
-            {
-                agenteId = credencial.AgenteId,
-                ultimos4 = credencial.Ultimos4,
-                estado = credencial.Estado.ToString(),
-                creadaEn = credencial.CreadaEn
-            });
+            var credencial = await oauth.CanjearAsync(http.User.Id(), agenteId, peticion.Code, ct);
+            return Results.Ok(Resumen(credencial));
         });
 
         grupo.MapDelete("/{agenteId}", async (
@@ -57,4 +57,13 @@ public static class EndpointsCredenciales
             return Results.NoContent();
         });
     }
+
+    private static object Resumen(CredencialResumen c) => new
+    {
+        agenteId = c.AgenteId,
+        ultimos4 = c.Ultimos4,
+        origen = c.Origen.ToString(),
+        estado = c.Estado.ToString(),
+        creadaEn = c.CreadaEn
+    };
 }

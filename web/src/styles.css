@@ -1,1 +1,270 @@
-/* You can add global styles to this file, and also import other style files */
+/*
+ * Lenguaje visual comun a todas las pantallas: unos apuntes de estudio con los colores de
+ * la UPC. Cada pantalla define su disposicion; aqui van los tokens y los controles.
+ */
+:root {
+  --papel: #fbfcfd;
+  --tinta: #1b2a41;
+  --resaltador: #f6e27a;
+  --grafito: #5e6b7d;
+  /* Rojo institucional de la UPC (upc.edu.pe): la cabecera y el examen. */
+  --upc: #d50000;
+  --upc-suave: #ffe3e3;
+  --lapicero: var(--upc);
+  --pauta: #e3e8ef;
+  --tapa: #1f3f6e;
+  --tapa-activa: #2b5288;
+  --tapa-suave: #c3cfe0;
+
+  --serif: "Literata", Georgia, serif;
+  --sans: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, sans-serif;
+
+  /* Escala 1.2 sobre 15 px: 12.5 · 15 · 18 · 21.6 */
+  --t-pequeno: 0.78125rem;
+  --t-base: 0.9375rem;
+  --t-lectura: 1.125rem;
+  --t-titulo: 1.35rem;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--papel);
+  color: var(--tinta);
+  font-family: var(--sans);
+  font-size: var(--t-base);
+  line-height: 1.5;
+}
+
+/* ---------- Controles comunes ---------- */
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  padding: 0.55rem 1rem;
+  border: 1.5px solid var(--pauta);
+  border-radius: 3px;
+  background: var(--papel);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--grafito);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.principal {
+  border-color: var(--tinta);
+  background: var(--tinta);
+  color: var(--papel);
+  font-weight: 600;
+}
+
+.principal:hover:not(:disabled) {
+  border-color: #2c4266;
+  background: #2c4266;
+}
+
+.enlace {
+  padding: 0.3rem 0.2rem;
+  border: 0;
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.quitar {
+  color: var(--lapicero);
+}
+
+input,
+select {
+  padding: 0.55rem 0.7rem;
+  border: 1.5px solid var(--pauta);
+  border-radius: 3px;
+  background: #fff;
+}
+
+input:focus {
+  border-color: var(--tinta);
+  outline: none;
+}
+
+:is(button, input, select, a):focus-visible {
+  outline: 2px solid var(--tinta);
+  outline-offset: 2px;
+}
+
+.error {
+  margin: 0;
+  padding: 0.6rem 1.5rem;
+  border-left: 3px solid var(--lapicero);
+  background: color-mix(in srgb, var(--lapicero) 6%, var(--papel));
+  color: var(--lapicero);
+}
+
+/* ---------- Disposición ---------- */
+
+.disposicion {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  height: 100%;
+}
+
+/* La barra de clases es la tapa del cuaderno: azul con letras blancas. */
+.clases {
+  padding: 1.5rem 1rem;
+  overflow-y: auto;
+  background: var(--tapa);
+  color: #fff;
+}
+
+.clases h2 {
+  margin: 0 0 0.75rem 0.75rem;
+  font-size: var(--t-base);
+  font-weight: 600;
+  color: var(--tapa-suave);
+}
+
+.clase {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.25rem;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.clase:hover:not(:disabled) {
+  border-left-color: rgb(255 255 255 / 0.4);
+}
+
+.clase.activa {
+  border-left-color: #fff;
+  background: var(--tapa-activa);
+}
+
+.clase:focus-visible {
+  outline-color: #fff;
+}
+
+.clase .titulo {
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.clase .fecha,
+.clases .vacio {
+  font-size: var(--t-pequeno);
+  color: var(--tapa-suave);
+}
+
+/* Etiqueta blanca con el rojo UPC: el mismo color que marca el examen en la cabecera. */
+.examen-disponible {
+  align-self: flex-start;
+  margin-top: 0.2rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 2px;
+  background: #fff;
+  color: var(--upc);
+  font-size: var(--t-pequeno);
+  font-weight: 700;
+}
+
+/* Cabecera en el rojo institucional de la UPC, con letras blancas. */
+.cabecera {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1.1rem 2.5rem;
+  background: var(--upc);
+  color: #fff;
+}
+
+.cabecera h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: var(--t-titulo);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.modo {
+  margin: 0.15rem 0 0;
+  font-size: var(--t-pequeno);
+  color: var(--upc-suave);
+}
+
+.controles {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.cabecera .enlace {
+  color: #fff;
+}
+
+.cabecera .acciones {
+  display: flex;
+  gap: 1.25rem;
+}
+
+/* Sobre el rojo, el botón principal se invierte: blanco con texto rojo. */
+.cabecera .principal {
+  border-color: #fff;
+  background: #fff;
+  color: var(--upc);
+}
+
+.cabecera .principal:hover:not(:disabled) {
+  border-color: var(--upc-suave);
+  background: var(--upc-suave);
+}
+
+.cabecera :is(button, select):focus-visible {
+  outline-color: #fff;
+}
+
+@media (max-width: 760px) {
+  .disposicion {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .clases {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    overflow-x: auto;
+  }
+  .clases h2 {
+    display: none;
+  }
+  .clase {
+    flex: 0 0 auto;
+    min-width: 11rem;
+    margin: 0;
+    border-left: 0;
+    border-bottom: 3px solid transparent;
+  }
+  .clase.activa {
+    border-bottom-color: #fff;
+  }
+}

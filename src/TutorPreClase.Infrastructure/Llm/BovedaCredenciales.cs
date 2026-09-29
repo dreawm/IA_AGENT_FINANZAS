@@ -23,11 +23,15 @@ public sealed class BovedaCredenciales(
             .AsNoTracking()
             .Where(c => c.UsuarioId == usuarioId)
             .OrderBy(c => c.AgenteId)
-            .Select(c => new CredencialResumen(c.AgenteId, c.Ultimos4, c.Estado, c.CreadaEn, c.UltimoUsoEn))
+            .Select(c => new CredencialResumen(c.AgenteId, c.Ultimos4, c.Origen, c.Estado, c.CreadaEn, c.UltimoUsoEn))
             .ToListAsync(ct);
 
     public async Task<CredencialResumen> ConectarAsync(
-        Guid usuarioId, string agenteId, string clave, CancellationToken ct = default)
+        Guid usuarioId,
+        string agenteId,
+        string clave,
+        OrigenCredencial origen = OrigenCredencial.Pegada,
+        CancellationToken ct = default)
     {
         clave = clave.Trim();
 
@@ -53,6 +57,7 @@ public sealed class BovedaCredenciales(
 
         credencial.ClaveCifrada = Protector(usuarioId).Protect(clave);
         credencial.Ultimos4 = clave[^4..];
+        credencial.Origen = origen;
         credencial.Estado = EstadoCredencial.Valida;
         credencial.UltimoUsoEn = null;
 
@@ -62,7 +67,8 @@ public sealed class BovedaCredenciales(
         log.LogInformation("Credencial de {Agente} conectada por el usuario {Usuario}", agenteId, usuarioId);
 
         return new CredencialResumen(
-            credencial.AgenteId, credencial.Ultimos4, credencial.Estado, credencial.CreadaEn, credencial.UltimoUsoEn);
+            credencial.AgenteId, credencial.Ultimos4, credencial.Origen, credencial.Estado,
+            credencial.CreadaEn, credencial.UltimoUsoEn);
     }
 
     public async Task DesconectarAsync(Guid usuarioId, string agenteId, CancellationToken ct = default)

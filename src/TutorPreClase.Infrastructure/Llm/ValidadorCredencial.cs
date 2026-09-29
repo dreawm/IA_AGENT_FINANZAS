@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 using TutorPreClase.Domain.Entidades;
 
@@ -45,29 +44,13 @@ public sealed class ValidadorCredencial(
         }
     }
 
-    /// <summary>La llamada mas barata posible que ejercite la autenticacion del proveedor.</summary>
+    /// <summary>
+    /// Consultar la propia clave en OpenRouter autentica sin gastar el cupo gratuito.
+    /// </summary>
     private static HttpRequestMessage Armar(AgenteIA agente, string clave)
     {
-        if (agente.Id == "claude")
-        {
-            var peticion = new HttpRequestMessage(HttpMethod.Post, "/v1/messages")
-            {
-                Content = JsonContent.Create(new
-                {
-                    model = agente.Modelo,
-                    max_tokens = 1,
-                    messages = new[] { new { role = "user", content = "ping" } }
-                }, options: MapeoLlm.Json)
-            };
-
-            peticion.Headers.Add("anthropic-version", "2023-06-01");
-            peticion.Headers.Add("x-api-key", clave);
-            return peticion;
-        }
-
-        // OpenAI y compatibles (Kimi): listar modelos autentica sin gastar tokens.
-        var listado = new HttpRequestMessage(HttpMethod.Get, "/v1/models");
-        listado.Headers.Authorization = new("Bearer", clave);
-        return listado;
+        var peticion = new HttpRequestMessage(HttpMethod.Get, "/api/v1/key");
+        peticion.Headers.Authorization = new("Bearer", clave);
+        return peticion;
     }
 }

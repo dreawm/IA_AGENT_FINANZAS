@@ -3,48 +3,36 @@ using TutorPreClase.Domain.Entidades;
 
 namespace TutorPreClase.Infrastructure.Persistencia;
 
-/// <summary>Agentes habilitados de fabrica (SDD §5.8).</summary>
+/// <summary>
+/// Agente de fabrica (SDD §5.8): OpenRouter, la unica via para que el alumno conecte su
+/// cuenta. Se agrega si falta, sin tocar el existente: el administrador puede haber
+/// cambiado su modelo.
+/// </summary>
 public static class DatosIniciales
 {
     public static async Task SembrarAsync(AppDbContext db, CancellationToken ct = default)
     {
-        if (await db.Agentes.AnyAsync(ct)) return;
+        var existentes = await db.Agentes.Select(a => a.Id).ToListAsync(ct);
+        var faltantes = Fabrica().Where(a => !existentes.Contains(a.Id)).ToList();
 
-        db.Agentes.AddRange(
-            new AgenteIA
-            {
-                Id = "claude",
-                NombreVisible = "Claude",
-                Proveedor = "Anthropic",
-                Modelo = "claude-sonnet-5",
-                BaseUrl = "https://api.anthropic.com",
-                Descripcion = "Explica paso a paso y cita el material de la clase.",
-                UrlConsola = "https://console.anthropic.com/settings/keys",
-                Habilitado = true
-            },
-            new AgenteIA
-            {
-                Id = "openai",
-                NombreVisible = "ChatGPT",
-                Proveedor = "OpenAI",
-                Modelo = "gpt-4.1",
-                BaseUrl = "https://api.openai.com",
-                Descripcion = "Respuestas directas y ejemplos breves.",
-                UrlConsola = "https://platform.openai.com/api-keys",
-                Habilitado = true
-            },
-            new AgenteIA
-            {
-                Id = "kimi",
-                NombreVisible = "Kimi",
-                Proveedor = "Moonshot",
-                Modelo = "kimi-k2",
-                BaseUrl = "https://api.moonshot.ai",
-                Descripcion = "Buen manejo de textos largos.",
-                UrlConsola = "https://platform.moonshot.ai/console/api-keys",
-                Habilitado = true
-            });
+        if (faltantes.Count == 0) return;
 
+        db.Agentes.AddRange(faltantes);
         await db.SaveChangesAsync(ct);
     }
+
+    private static IEnumerable<AgenteIA> Fabrica() =>
+    [
+        // Sin consola: la clave llega por OAuth al iniciar sesion (RF-24, RF-29).
+        new AgenteIA
+        {
+            Id = "openrouter",
+            NombreVisible = "OpenRouter (gratis)",
+            Proveedor = "OpenRouter",
+            Modelo = "qwen/qwen3.8-27b:free",
+            BaseUrl = "https://openrouter.ai",
+            Descripcion = "Sin costo: entra con tu cuenta de OpenRouter. Tiene un límite de mensajes por día.",
+            Habilitado = true
+        }
+    ];
 }

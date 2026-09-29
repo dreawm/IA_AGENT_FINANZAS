@@ -1,0 +1,47 @@
+<header class="franja">Tutor pre-clase</header>
+
+<main class="entrada">
+  <h1>Prepárate antes de cada clase</h1>
+  <p class="bajada">
+    Estudia con el material de tu docente, rinde el examen previo y resuelve tus dudas con un
+    tutor que solo usa lo que se vio en clase.
+  </p>
+
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <section class="proveedores" aria-label="Iniciar sesión">
+    @for (p of proveedores(); track p.id) {
+      <button type="button" class="principal" [disabled]="ocupado()" (click)="entrarCon(p.id)">
+        Entrar con {{ p.nombre }}
+      </button>
+    } @empty {
+      <p class="error">
+        El inicio de sesión con Microsoft y Google aún no está configurado. Avisa al administrador.
+      </p>
+    }
+  </section>
+
+  <p class="ayuda">
+    Entra con tu cuenta de Google o Microsoft. La primera vez quedas como alumno de todos los
+    cursos; tu profesor entra por aquí mismo y llega a su panel.
+  </p>
+
+  @if (desarrollo() && deprueba().length) {
+    <section class="prueba" aria-labelledby="titulo-prueba">
+      <h2 id="titulo-prueba">Entrar como usuario de prueba</h2>
+      <p class="ayuda">Solo en desarrollo, sin Microsoft ni Google.</p>
+      <ul>
+        @for (u of deprueba(); track u.id) {
+          <li>
+            <button type="button" class="enlace" [disabled]="ocupado()" (click)="entrarDePrueba(u.id)">
+              {{ u.nombre }}
+            </button>
+            <span class="rol">{{ u.rol === 'Admin' ? 'Administrador' : u.rol }}, {{ u.email }}</span>
+          </li>
+        }
+      </ul>
+    </section>
+  }
+</main>

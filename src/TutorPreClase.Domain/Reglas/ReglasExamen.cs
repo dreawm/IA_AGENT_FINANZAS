@@ -38,7 +38,9 @@ public static class ReglasExamen
     {
         if (intento.Estado != EstadoIntento.EnCurso) return Validacion.No(MotivoRechazo.IntentoNoEnCurso);
         if (TiempoVencido(examen, intento, ahora)) return Validacion.No(MotivoRechazo.TiempoVencido);
-        if (examen.Preguntas.All(p => p.Id != preguntaId)) return Validacion.No(MotivoRechazo.PreguntaAjenaAlIntento);
+        // Solo cuentan las preguntas generadas para este intento, no las de otro alumno.
+        if (!examen.Preguntas.Any(p => p.Id == preguntaId && p.IntentoId == intento.Id))
+            return Validacion.No(MotivoRechazo.PreguntaAjenaAlIntento);
         if (intento.Respuestas.Any(r => r.PreguntaId == preguntaId)) return Validacion.No(MotivoRechazo.PreguntaYaRespondida);
         return Validacion.Ok;
     }

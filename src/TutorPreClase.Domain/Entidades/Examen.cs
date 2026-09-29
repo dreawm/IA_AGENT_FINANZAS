@@ -12,6 +12,9 @@ public class Examen
     public ModoFeedback ModoFeedback { get; set; } = ModoFeedback.AlFinal;
     public bool Publicado { get; set; }
 
+    /// <summary>Cuantas preguntas genera la IA para cada intento (RF-04).</summary>
+    public int PreguntasPorIntento { get; set; } = 6;
+
     public List<Pregunta> Preguntas { get; set; } = [];
 }
 
@@ -20,6 +23,14 @@ public class Pregunta
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ExamenId { get; set; }
     public Examen? Examen { get; set; }
+
+    /// <summary>
+    /// Intento para el que la IA genero la pregunta: cada alumno rinde un examen propio en
+    /// cada intento (RF-04). Null solo en preguntas antiguas de banco, que ya no se usan.
+    /// </summary>
+    public Guid? IntentoId { get; set; }
+    public Intento? Intento { get; set; }
+
     public string Enunciado { get; set; } = "";
     public string Justificacion { get; set; } = "";
     public string Tema { get; set; } = "";

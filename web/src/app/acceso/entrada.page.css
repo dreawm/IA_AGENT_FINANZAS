@@ -1,0 +1,90 @@
+:host {
+  display: block;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* La misma franja roja UPC que la cabecera del chat: se reconoce desde la entrada. */
+.franja {
+  padding: 1rem 1.5rem;
+  background: var(--upc);
+  color: #fff;
+  font-family: var(--serif);
+  font-size: var(--t-lectura);
+  font-weight: 600;
+}
+
+.entrada {
+  max-width: 30rem;
+  margin: 12vh auto 3rem;
+  padding: 0 1.5rem;
+}
+
+h1 {
+  margin: 0 0 0.75rem;
+  font-family: var(--serif);
+  font-size: 2.1rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.bajada {
+  margin: 0 0 2rem;
+  font-family: var(--serif);
+  font-size: var(--t-lectura);
+  line-height: 1.6;
+  color: var(--grafito);
+}
+
+.error {
+  margin-bottom: 1.25rem;
+  padding: 0.6rem 1rem;
+}
+
+.proveedores {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.proveedores .principal {
+  padding: 0.8rem 1rem;
+  font-size: var(--t-lectura);
+}
+
+.ayuda {
+  margin: 0;
+  font-size: var(--t-pequeno);
+  color: var(--grafito);
+}
+
+.prueba {
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px dashed var(--grafito);
+}
+
+.prueba h2 {
+  margin: 0;
+  font-size: var(--t-base);
+}
+
+.prueba ul {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prueba li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+}
+
+.rol {
+  font-size: var(--t-pequeno);
+  color: var(--grafito);
+}

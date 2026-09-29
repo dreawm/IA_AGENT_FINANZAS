@@ -40,3 +40,6 @@ npm-debug.log*
 # --- Logs y temporales ---
 *.log
 *.tmp
+
+# Secretos locales del contenedor (ClientId/secreto de Google y Microsoft), nunca al repo
+tutor.env

@@ -11,7 +11,7 @@ public class TutorProxyTests
     public async Task El_contenido_del_docente_viaja_en_el_prompt_con_sus_marcas_de_cita()
     {
         using var banco = new BancoDePruebas().Sembrar();
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
 
         banco.Proveedor.RespondeTexto("Claro.");
         await banco.EnviarAsync(conversacion.Id, "Hola");
@@ -28,7 +28,7 @@ public class TutorProxyTests
     public async Task En_consulta_solo_se_ofrece_la_herramienta_de_dudas()
     {
         using var banco = new BancoDePruebas().Sembrar();
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
 
         banco.Proveedor.RespondeTexto("Con gusto.");
         await banco.EnviarAsync(conversacion.Id, "Que es ReLU?");
@@ -42,7 +42,7 @@ public class TutorProxyTests
     public async Task Durante_el_examen_no_se_ofrecen_las_herramientas_de_revision()
     {
         using var banco = new BancoDePruebas().Sembrar();
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
         await banco.Tutor.IniciarExamenAsync(conversacion.Id);
 
         banco.Proveedor.RespondeTexto("Pregunta 1 de 2.");
@@ -59,7 +59,7 @@ public class TutorProxyTests
     public async Task El_servidor_rechaza_una_herramienta_ajena_al_modo_aunque_el_modelo_la_pida()
     {
         using var banco = new BancoDePruebas().Sembrar();
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
         await banco.Tutor.IniciarExamenAsync(conversacion.Id);
 
         // El modelo intenta leer el resultado en pleno examen.
@@ -79,7 +79,7 @@ public class TutorProxyTests
     public async Task Con_la_ampliacion_desactivada_el_bloque_no_llega_al_alumno()
     {
         using var banco = new BancoDePruebas().Sembrar(ampliacionPermitida: false);
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
 
         banco.Proveedor.Responde(
             new TextoParcial("La sigmoide satura [Clase03.pdf, p. 11].\n\n"),
@@ -103,7 +103,7 @@ public class TutorProxyTests
     public async Task Durante_el_examen_tampoco_se_amplia_aunque_la_clase_lo_permita()
     {
         using var banco = new BancoDePruebas().Sembrar(ampliacionPermitida: true);
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
         await banco.Tutor.IniciarExamenAsync(conversacion.Id);
 
         banco.Proveedor.Responde(
@@ -121,7 +121,7 @@ public class TutorProxyTests
     public async Task Con_la_ampliacion_permitida_el_bloque_se_conserva_y_se_marca()
     {
         using var banco = new BancoDePruebas().Sembrar(ampliacionPermitida: true);
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
 
         banco.Proveedor.Responde(
             new TextoParcial("El material no cubre GELU.\n\n"),
@@ -140,7 +140,7 @@ public class TutorProxyTests
     public async Task Las_citas_se_resuelven_contra_el_material_y_las_invalidas_se_marcan()
     {
         using var banco = new BancoDePruebas().Sembrar();
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
 
         banco.Proveedor.Responde(
             new TextoParcial("Ver [Clase03.pdf, p. 12] y [Clase03.pdf, p. 99]."),
@@ -169,7 +169,7 @@ public class TutorProxyTests
         });
         banco.Db.SaveChanges();
 
-        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var conversacion = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
         await banco.Tutor.IniciarExamenAsync(conversacion.Id);
 
         var error = await Assert.ThrowsAsync<Application.Evaluacion.ExamenException>(
@@ -183,8 +183,8 @@ public class TutorProxyTests
     {
         using var banco = new BancoDePruebas().Sembrar();
 
-        var primera = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
-        var segunda = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "claude");
+        var primera = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
+        var segunda = await banco.Tutor.AbrirConversacionAsync(banco.ClaseId, banco.AlumnoId, "openrouter");
 
         Assert.Equal(primera.Id, segunda.Id);
         Assert.Single(banco.Db.Conversaciones);

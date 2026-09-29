@@ -2,7 +2,7 @@ namespace TutorPreClase.Domain.Entidades;
 
 public class AgenteIA
 {
-    /// <summary>"claude" | "openai" | "kimi".</summary>
+    /// <summary>"openrouter"; la interfaz deja abierta la puerta a otro gateway.</summary>
     public string Id { get; set; } = "";
     public string NombreVisible { get; set; } = "";
     public string Proveedor { get; set; } = "";
@@ -108,6 +108,9 @@ public class NivelAlumno
 
 public enum EstadoCredencial { Valida, Invalida }
 
+/// <summary>Como llego la clave: pegada por el alumno u obtenida por OAuth (RF-29).</summary>
+public enum OrigenCredencial { Pegada, OAuth }
+
 /// <summary>
 /// Credencial BYOK del alumno (SDD §4). La clave se guarda cifrada y nunca se devuelve:
 /// la web solo conoce el agente, los ultimos 4 caracteres y la fecha de conexion.
@@ -120,6 +123,7 @@ public class CredencialAgente
     public string AgenteId { get; set; } = "";
     public string ClaveCifrada { get; set; } = "";
     public string Ultimos4 { get; set; } = "";
+    public OrigenCredencial Origen { get; set; } = OrigenCredencial.Pegada;
     public EstadoCredencial Estado { get; set; } = EstadoCredencial.Valida;
     public DateTimeOffset CreadaEn { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? UltimoUsoEn { get; set; }

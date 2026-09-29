@@ -1,0 +1,165 @@
+/* Misma estructura que el chat (barra azul, cabecera roja UPC), con un panel de lectura. */
+:host {
+  display: block;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.quien {
+  margin: 0.15rem 0 0;
+  font-size: var(--t-pequeno);
+  color: var(--upc-suave);
+}
+
+.contenido {
+  display: grid;
+  gap: 2rem;
+  max-width: 52rem;
+  padding: 2rem 2.5rem 3rem;
+}
+
+.contenido h2 {
+  margin: 0 0 0.4rem;
+  font-family: var(--serif);
+  font-size: var(--t-lectura);
+  font-weight: 600;
+}
+
+.contenido h3 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: var(--t-base);
+}
+
+.ayuda {
+  margin: 0.4rem 0 0.8rem;
+  font-size: var(--t-pequeno);
+  color: var(--grafito);
+}
+
+code {
+  font-size: 0.95em;
+}
+
+.vacio {
+  color: var(--grafito);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--pauta);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  font-size: var(--t-pequeno);
+  font-weight: 600;
+  color: var(--grafito);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.falla {
+  color: var(--lapicero);
+  font-weight: 600;
+}
+
+.interruptor {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.interruptor input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--tapa);
+}
+
+.cifra {
+  margin: 0 0 1rem;
+}
+
+.cifra strong {
+  font-family: var(--serif);
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+
+/* Histograma de notas: cuatro tramos, una sola tinta. */
+.barras {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  max-width: 24rem;
+  height: 8rem;
+  align-items: end;
+}
+
+.barra {
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  align-items: end;
+  height: 100%;
+  text-align: center;
+}
+
+.barra .valor {
+  display: block;
+  min-height: 2px;
+  background: var(--tapa);
+}
+
+.barra .etiqueta,
+.barra .cuenta {
+  font-size: var(--t-pequeno);
+  color: var(--grafito);
+  font-variant-numeric: tabular-nums;
+}
+
+.temas,
+.dudas {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.temas li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--pauta);
+}
+
+.dudas li {
+  padding: 0.35rem 0 0.35rem 0.75rem;
+  border-left: 1.5px dashed var(--grafito);
+  margin-bottom: 0.4rem;
+  font-family: var(--serif);
+  font-style: italic;
+}
+
+@media (max-width: 760px) {
+  .contenido {
+    padding: 1.25rem 1rem 2rem;
+  }
+}

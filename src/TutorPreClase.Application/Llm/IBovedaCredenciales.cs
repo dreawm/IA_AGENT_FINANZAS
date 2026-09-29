@@ -6,6 +6,7 @@ namespace TutorPreClase.Application.Llm;
 public sealed record CredencialResumen(
     string AgenteId,
     string Ultimos4,
+    OrigenCredencial Origen,
     EstadoCredencial Estado,
     DateTimeOffset CreadaEn,
     DateTimeOffset? UltimoUsoEn);
@@ -24,7 +25,12 @@ public interface IBovedaCredenciales
     Task<IReadOnlyList<CredencialResumen>> ListarAsync(Guid usuarioId, CancellationToken ct = default);
 
     /// <summary>Valida contra el proveedor antes de guardar (RF-25).</summary>
-    Task<CredencialResumen> ConectarAsync(Guid usuarioId, string agenteId, string clave, CancellationToken ct = default);
+    Task<CredencialResumen> ConectarAsync(
+        Guid usuarioId,
+        string agenteId,
+        string clave,
+        OrigenCredencial origen = OrigenCredencial.Pegada,
+        CancellationToken ct = default);
 
     Task DesconectarAsync(Guid usuarioId, string agenteId, CancellationToken ct = default);
 
