@@ -123,7 +123,7 @@ curl -s -H "X-Usuario-Id: $(python -c 'import uuid;print(uuid.uuid4())')" \
 | Requisito | Cómo verificarlo |
 | --- | --- |
 | RF-19 | En M1: `¿qué diferencia hay entre costo y gasto?` obtiene respuesta del tema |
-| RF-11 | Esa respuesta cita la infografía *Costo vs Gasto* (resaltada en el texto y en el margen) |
+| RF-11 | Esa respuesta cita la infografía *Costo vs Gasto* (resaltada en el texto y en las fuentes debajo del globo del tutor) |
 | RF-12 / RF-20 | `¿qué es el WACC?` (no está en el material de M1). Con la ampliación **apagada, que es lo que viene por defecto**: responde *"Esto no está en el material de la clase; pregúntalo en la sesión."* y no sale nada a lápiz |
 | RF-19 | `dame una receta de ceviche` → declina y reconduce al curso |
 | RNF-02 | El primer token aparece en menos de ~3 s |
@@ -160,7 +160,7 @@ curl -s -H "X-Usuario-Id: $(python -c 'import uuid;print(uuid.uuid4())')" \
 | RF-22 | El reporte trae `distribucionNiveles`, nivel por alumno y `temasDebilesDelGrupo` |
 | RF-16 | El reporte trae `promedioNota`, `distribucionNotas`, `temasMasFallados` y `usoPorAgente` |
 | RF-21 | `PUT /clases/$CLA/niveles/$ALU` con `{"nivel":"Avanzado"}` responde `"origen":"Docente"` y el cálculo no lo pisa |
-| RF-20 | `PUT /clases/$CLA/ampliacion` con `{"permitida":true}`; recarga el chat y repite `¿qué es el WACC?`: ahora lo dice y amplía **a lápiz en el margen** ("Fuera del material"). Vuelve a `{"permitida":false}` al terminar: apagada, el corte lo hace el servidor, no el prompt |
+| RF-20 | `PUT /clases/$CLA/ampliacion` con `{"permitida":true}`; recarga el chat y repite `¿qué es el WACC?`: ahora lo dice y amplía **a lápiz debajo de la respuesta** ("Fuera del material"). Vuelve a `{"permitida":false}` al terminar: apagada, el corte lo hace el servidor, no el prompt |
 | RF-02 / §6.1 | Con el chat abierto en M2, copia el archivo de prueba del bloque A a esa carpeta: en ≤ 30 s sale *"Tu docente actualizó el material de esta clase"* sin recargar. Sin cambios en la carpeta, `read_network_requests` no muestra pedidos periódicos a `/alumno/clases` (solo la conexión abierta a `/alumno/novedades`) |
 
 ```bash
@@ -185,7 +185,7 @@ Dilo explícitamente al reportar; no los marques como aprobados:
 
 | Requisito | Estado |
 | --- | --- |
-| RF-31 | Google está registrado (proyecto `tutor-pre-clase`, modo prueba: solo entran los *Test users*). **Microsoft no**: la cuenta UPC de alumno no puede registrar apps (403); ver skill `configurar-oauth`. Sin su `ClientId`, *Continuar con Microsoft* solo avisa que no está configurado |
+| RF-31 | Google está registrado (proyecto `tutor-pre-clase`, modo prueba: solo entran los *Test users*). **Microsoft no**: la cuenta UPC de alumno no puede registrar apps (403); ver skill `setup-oauth`. Sin su `ClientId`, *Continuar con Microsoft* solo avisa que no está configurado |
 | RF-34 | El panel del docente todavía no ajusta ventana, intentos, tiempo ni modo de feedback: solo por `PUT /clases/$CLA/examen` |
 | RF-35 | El modelo del tutor se cambia solo por `PUT /admin/agentes/openrouter`; no hay pantalla |
 | RF-05 | La justificación cita el material, pero las **referencias** no se guardan aún en `pregunta_referencia` |

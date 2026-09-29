@@ -61,7 +61,7 @@ for i in $(seq 1 60); do curl -s --max-time 2 http://localhost:5080/salud && bre
   Cada profesor administra solo su carpeta.
 - **`secrets/` se monta solo lectura** (`/secrets`, ignorada por git): de ahí la API lee las
   credenciales OAuth (el JSON de Google y `microsoft.json`). Para registrarlas, skill
-  `configurar-oauth`. Nunca abras ni muestres esos archivos.
+  `setup-oauth`. Nunca abras ni muestres esos archivos.
 - **Volúmenes:** `tutor-datos` guarda la base SQLite y el contenido subido; `tutor-claves`,
   las claves de cifrado de las credenciales. Sin ese segundo volumen, al recrear el
   contenedor la cuenta de OpenRouter conectada ya no se podría descifrar y habría que

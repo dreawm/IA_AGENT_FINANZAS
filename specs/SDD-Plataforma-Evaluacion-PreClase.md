@@ -124,7 +124,7 @@ Lo que casi todo necesita es saber **quién es el usuario y qué rol tiene** (RF
 
 | Orden | Bloque | Requisitos | Estado |
 | --- | --- | --- | --- |
-| 1 | Acceso e identidad | RF-31, RF-33 | Hecho y probado con Google en local (proyecto `tutor-pre-clase`, modo prueba). Falta Microsoft: la cuenta UPC de alumno no puede registrar apps en Entra (403); lo registra TI o una cuenta personal con su propio directorio (skill `configurar-oauth`) |
+| 1 | Acceso e identidad | RF-31, RF-33 | Hecho y probado con Google en local (proyecto `tutor-pre-clase`, modo prueba). Falta Microsoft: la cuenta UPC de alumno no puede registrar apps en Entra (403); lo registra TI o una cuenta personal con su propio directorio (skill `setup-oauth`) |
 | 2 | Material del docente | RF-02, RF-03, RF-01 | Hecho (carpeta sincronizada; reprogramar la fecha de una clase aún no tiene endpoint) |
 | 3 | Conexión del alumno | RF-32, RF-24–RF-27, RF-29 | Hecho |
 | 4 | Tutor en consulta | RF-19, RF-11, RF-12, RF-20 | Hecho |
@@ -731,7 +731,7 @@ Todos entran por la misma página y cada rol tiene **una sola pantalla**: el alu
 | Entrada | Todos | Franja roja UPC; primero *Soy alumno* / *Soy profesor*, luego *Continuar con Google* / *Continuar con Microsoft (Outlook)*; lleva a cada rol a su pantalla |
 | Tu profesor | Alumno | Lista de profesores con sus cursos para elegir o cambiar; se abre desde *Cambiar* en la barra lateral del chat o si aún no tiene profesor |
 | Administración | Admin | Alta o edición de una persona (correo, nombre, rol, cursos), alta por lista y tabla de usuarios registrados |
-| Chat del tutor | Alumno | Lista lateral de clases (con estado del examen y cuenta regresiva) y el chat en streaming. En la cabecera: clase, modo (Consulta / Examen / Revisión) y, durante el examen, progreso y temporizador; con un solo agente no hay selector. En el cuerpo: mensajes, chips de fuente que abren el archivo en la página citada y bloques de ampliación con estilo diferenciado. Aviso cuando el docente actualiza el material (§6.1). Si no tiene la cuenta conectada, el chat muestra en su lugar el panel de conexión |
+| Chat del tutor | Alumno | Lista lateral de clases (con estado del examen y cuenta regresiva) y el chat en streaming, **como una conversación: los mensajes del alumno a la izquierda y las respuestas del tutor a la derecha**, cada uno en su globo; debajo del globo del tutor, sus fuentes (resaltadas) y la ampliación (a lápiz). Las negritas de Markdown del tutor se muestran como negritas. En la cabecera: clase, modo (Consulta / Examen / Revisión) y, durante el examen, progreso y temporizador; con un solo agente no hay selector. En el cuerpo: mensajes, chips de fuente que abren el archivo en la página citada y bloques de ampliación con estilo diferenciado. Aviso cuando el docente actualiza el material (§6.1). Si no tiene la cuenta conectada, el chat muestra en su lugar el panel de conexión |
 | Conectar mi tutor | Alumno | Panel dentro del chat con un solo botón, *Conectar con OpenRouter (gratis)*, y una línea que explica que es gratis, que puede crear la cuenta con su Google y que no tiene que copiar ninguna clave. Ya conectado: últimos 4 y estado, con *Volver a entrar* y *Desconectar* |
 | Panel del docente: material | Docente | Estado de extracción de lo que copió a la carpeta y tokens del contexto de clase, ventana del examen, interruptor de ampliación. *Pendiente:* ajustar ventana, intentos, tiempo, preguntas por intento y modo de feedback desde la pantalla (hoy solo por API). No hay botón de publicar: las clases de la carpeta nacen con el examen publicado |
 | Panel del docente: reporte | Docente | Promedio, histograma de notas, distribución de niveles y nivel por alumno (editable), temas más fallados (porcentaje de respuestas erradas por tema), temas débiles del grupo, dudas que el material no cubrió y uso por agente |
@@ -830,3 +830,24 @@ La web nunca ve ni guarda la clave: la ruta `/conectar/openrouter` toma el `code
 - ¿El docente debe poder ver las preguntas que la IA generó para cada alumno (auditoría), aunque no las apruebe?
 - ¿Los rangos de nivel (11 / 15 / 18) son los correctos para la universidad, o se definen por curso?
 - ¿El modo Consulta sigue abierto después de la clase, o se cierra al terminar la sesión?
+
+### 9.6 Pendientes
+
+Estado a 2026-09-29, tras la prueba con Google y el chat en Chrome. Por prioridad:
+
+| # | Pendiente | Requisito | Detalle |
+| --- | --- | --- | --- |
+| 1 | Registrar la app en Microsoft (Outlook) | RF-31 | La cuenta UPC de alumno no puede registrar apps en Entra (403). Lo hace TI de la UPC o una cuenta personal con su propio directorio (skill `setup-oauth`); luego `secrets/microsoft.json` |
+| 2 | Respuestas del tutor cortadas | RF-19, RF-11 | En la prueba, la respuesta sobre costo y gasto terminó a media cita. Revisar el tope de tokens de salida (`MaxTokens` 1024) con el modelo `:free`, que además razona, y avisar al alumno si la respuesta quedó incompleta |
+| 3 | Citas válidas marcadas como inválidas | RF-11, §6.4 | El modelo abrevia nombres de archivo largos (`MDSTI_MFEP_M1_INFOGRAFÍA_Costo vs Gasto` en vez del nombre completo) y la cita sale tachada. Aceptar coincidencia por prefijo o dar al modelo nombres cortos por archivo |
+| 4 | Markdown del tutor | UI | Se muestran negritas; listas, títulos y tablas siguen como texto plano |
+| 5 | Ajustes del examen en el panel del docente | RF-34 | Ventana, intentos, tiempo, preguntas por intento y modo de feedback solo por `PUT /clases/{id}/examen` |
+| 6 | Botón de reintento tras un fallo del proveedor | RF-17 | El avance no se pierde, pero el alumno tiene que reenviar el mensaje |
+| 7 | Validar los modelos de respaldo | RNF-11, §5.8 | `gemma-4-31b-it:free` y `nemotron-3-super-120b-a12b:free` se eligieron del listado público y no han pasado la suite de paridad |
+| 8 | Probar el examen generado con el modelo real | RF-04, RF-05 | Calidad de las 6 preguntas, citas de las justificaciones y consumo del cupo gratuito |
+| 9 | Referencias de cada pregunta a `pregunta_referencia` | RF-05 | La justificación cita el material, pero no se guardan las referencias |
+| 10 | Migración `CredencialesByok` generada contra SQLite | Despliegue | Rompe `database update` en PostgreSQL; regenerarla antes del primer despliegue |
+| 11 | Pantalla para elegir el modelo del tutor | RF-35 | Hoy solo por `PUT /admin/agentes/{id}` |
+| 12 | Tope de mensajes por alumno y clase | RNF-08 | Sin implementar |
+| 13 | Dificultad adaptativa por nivel | RF-23 | Sin implementar |
+| 14 | Carga, volumen y disponibilidad | RNF-03 a RNF-05 | Medir con k6 en un despliegue |

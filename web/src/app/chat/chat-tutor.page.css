@@ -127,9 +127,13 @@
 
 /* ---------- Conversación ---------- */
 
+/* Conversación: alumno a la izquierda, tutor a la derecha. */
 .mensajes {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
   margin: 0;
   padding: 2rem 2.5rem;
   overflow-y: auto;
@@ -137,7 +141,7 @@
 }
 
 .mensajes > li {
-  margin-bottom: 1.75rem;
+  max-width: min(42rem, 85%);
 }
 
 .texto {
@@ -146,19 +150,28 @@
   overflow-wrap: anywhere;
 }
 
-/* El alumno escribe a tinta, en su propia letra: sans y con una raya de lapicero azul. */
+/* El alumno: globo azul pálido, pegado a la izquierda. */
 .alumno {
-  max-width: 38rem;
-  padding-left: 0.9rem;
-  border-left: 3px solid var(--tinta);
+  align-self: flex-start;
+  padding: 0.6rem 0.95rem;
+  border: 1px solid var(--tapa-suave);
+  border-radius: 14px 14px 14px 3px;
+  background: color-mix(in srgb, var(--tapa) 7%, var(--papel));
 }
 
-/* El tutor escribe el texto de estudio; al margen, lo que cita y lo que añade. */
+/* El tutor: globo blanco a la derecha; debajo, citas y ampliación. */
 .tutor {
-  display: grid;
-  grid-template-columns: minmax(0, 38rem) minmax(11rem, 15rem);
-  column-gap: 2.5rem;
-  align-items: start;
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.tutor .cuerpo {
+  padding: 0.8rem 1.05rem;
+  border: 1px solid var(--pauta);
+  border-radius: 14px 14px 3px 14px;
+  background: #fff;
 }
 
 .tutor .texto {
@@ -207,15 +220,15 @@
 .margen {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
-  padding-top: 0.3rem;
+  gap: 0.6rem;
+  padding: 0 0.4rem;
   font-size: var(--t-pequeno);
 }
 
 .fuentes {
   display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -305,7 +318,7 @@
   }
 }
 
-/* ---------- Móvil: las clases arriba y el margen debajo de cada respuesta ---------- */
+/* ---------- Móvil: las clases arriba y globos más anchos ---------- */
 
 @media (max-width: 760px) {
   .cabecera,
@@ -321,9 +334,8 @@
     padding: 1.25rem 1rem;
   }
 
-  .tutor {
-    grid-template-columns: minmax(0, 1fr);
-    row-gap: 0.75rem;
+  .mensajes > li {
+    max-width: 92%;
   }
 
   .tiempo {

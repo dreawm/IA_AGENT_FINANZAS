@@ -1,5 +1,5 @@
 ---
-name: configurar-oauth
+name: setup-oauth
 description: Registra el Tutor Pre-Clase en Google Cloud y en Microsoft Entra para que funcionen los botones "Continuar con Google" y "Continuar con Microsoft (Outlook)" — crea proyecto, pantalla de consentimiento, cliente OAuth y registro de app con Chrome, y deja que la API lea las credenciales desde secrets/. Úsalo cuando pidan configurar, registrar o arreglar el inicio de sesión con Google, Microsoft u Outlook, o cuando esos botones digan "aún no está configurado".
 ---
 
