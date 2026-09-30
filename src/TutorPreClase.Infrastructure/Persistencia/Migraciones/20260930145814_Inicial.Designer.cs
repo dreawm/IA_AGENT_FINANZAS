@@ -12,8 +12,8 @@ using TutorPreClase.Infrastructure.Persistencia;
 namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260929145549_CredencialOrigen")]
-    partial class CredencialOrigen
+    [Migration("20260930145814_Inicial")]
+    partial class Inicial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -151,7 +151,7 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                     b.Property<bool>("AmpliacionPermitida")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(true);
+                        .HasDefaultValue(false);
 
                     b.Property<Guid>("CursoId")
                         .HasColumnType("uuid");
@@ -273,6 +273,9 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<Guid?>("DocenteId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -346,6 +349,11 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<int>("PreguntasPorIntento")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(6);
 
                     b.Property<bool>("Publicado")
                         .HasColumnType("boolean");
@@ -562,6 +570,9 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                     b.Property<Guid>("ExamenId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("IntentoId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Justificacion")
                         .IsRequired()
                         .HasColumnType("text");
@@ -586,6 +597,8 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                     b.HasKey("Id");
 
                     b.HasIndex("ExamenId");
+
+                    b.HasIndex("IntentoId");
 
                     b.ToTable("pregunta", (string)null);
                 });
@@ -658,6 +671,9 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("ProfesorId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Rol")
                         .IsRequired()
@@ -805,7 +821,14 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("TutorPreClase.Domain.Entidades.Intento", "Intento")
+                        .WithMany()
+                        .HasForeignKey("IntentoId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
                     b.Navigation("Examen");
+
+                    b.Navigation("Intento");
                 });
 
             modelBuilder.Entity("TutorPreClase.Domain.Entidades.PreguntaReferencia", b =>

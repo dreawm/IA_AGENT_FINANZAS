@@ -1,8 +1,9 @@
+import { environment } from '../../environments/environment';
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
-const API = '/api/v1';
+const API = `${environment.apiUrl}/v1`;
 
 export interface ContenidoClase {
   archivos: { archivoId: string; nombre: string; estado: string; error: string | null; paginas: number }[];

@@ -110,6 +110,16 @@ app.MapearCredenciales();
 app.MapearDocente();
 app.MapearAdmin();
 
+// En un despliegue (Railway) el contenedor deja el esquema al día al arrancar y asegura
+// el agente de fábrica; Base:MigrarAlArrancar=false lo desactiva.
+if (!app.Environment.IsDevelopment() && app.Configuration.GetValue("Base:MigrarAlArrancar", false))
+{
+    using var ambito = app.Services.CreateScope();
+    var db = ambito.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.MigrateAsync();
+    await DatosIniciales.SembrarAsync(db);
+}
+
 if (app.Environment.IsDevelopment())
 {
     using var ambito = app.Services.CreateScope();

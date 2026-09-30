@@ -189,12 +189,12 @@ La API nunca espera a la extracción: al subir un archivo publica un evento y el
 | Worker | .NET Worker Service + MassTransit | Procesa la cola de extracción de texto con reintentos |
 | Extracción de texto | PdfPig (PDF), Open XML SDK (DOCX/PPTX/XLSX) | Librerías .NET sin dependencias externas |
 | Base de datos | PostgreSQL 16 | Datos relacionales y texto del contenido en una sola base |
-| Archivos | Azure Blob Storage o Amazon S3 | Almacenamiento barato del contenido original |
+| Archivos | Volumen de Railway en la v1; Azure Blob Storage o Amazon S3 más adelante | Almacenamiento barato del contenido original |
 | Cola | RabbitMQ | Desacopla subida y extracción de texto |
 | LLM | OpenRouter (modelo `:free` elegido por el administrador) vía ILlmProvider | Una sola cuenta gratuita por alumno, conectada con un clic; el modelo se cambia por configuración |
 | Autenticación | OpenID Connect con Microsoft (Entra ID) y Google; sesión propia firmada por la API | Login institucional, sin contraseñas propias; el rol lo decide la plataforma |
 | Cifrado de credenciales | ASP.NET Data Protection, con clave por usuario | Cifrado en reposo sin montar un KMS para la v1 |
-| Despliegue | Docker en Azure Container Apps o AWS ECS | Escalado horizontal de la API en horas pico |
+| Despliegue | API en Docker sobre Railway (con PostgreSQL) y web estática en Vercel, desplegadas por GitHub Actions solo con el CI en verde (`docs/DESPLIEGUE.md`); Azure Container Apps o AWS ECS si la universidad lo exige | Barato para la v1, un despliegue por push a `main` y escalado horizontal más adelante |
 
 ## 4. Modelo de datos
 
@@ -765,7 +765,8 @@ La web nunca ve ni guarda la clave: la ruta `/conectar/openrouter` toma el `code
 - Las credenciales son del alumno y solo suyas: se cifran en reposo, se descifran únicamente para la llamada saliente de *sus* conversaciones, y ni el docente ni el administrador pueden leerlas ni usarlas.
 - La API nunca devuelve una credencial: solo proveedor, últimos 4 caracteres, origen, estado y fecha de conexión.
 - OAuth con OpenRouter: PKCE con S256, `code_verifier` de un solo uso que vive 10 minutos en el servidor y ligado al alumno autenticado, `callback_url` fija por entorno (nunca tomada de la petición), y canje hecho por la API, de modo que la clave no toca el navegador.
-- Las claves de infraestructura (base de datos, almacenamiento) en Azure Key Vault o AWS Secrets Manager, nunca en el frontend; rotación trimestral.
+- Las claves de infraestructura (base de datos, clave de sesión, secretos OAuth) van como variables del servicio en Railway (en Azure Key Vault o AWS Secrets Manager si se migra), nunca en el frontend ni en el repositorio; rotación trimestral. La cadena de conexión referencia las variables del PostgreSQL de Railway, así que nadie ve la contraseña.
+- Las claves de Data Protection que cifran las credenciales de los alumnos se guardan en un volumen (`ProteccionDatos:Carpeta`): si se perdieran, las credenciales guardadas quedarían ilegibles y cada alumno tendría que volver a conectar OpenRouter.
 - Revisar los términos de uso y retención de datos de cada proveedor antes de habilitarlo (en especial transferencia internacional de datos de alumnos). En OpenRouter esto vale para el proveedor final que sirve el modelo gratuito, no solo para OpenRouter: se descartan los que entrenan con los prompts (RNF-11).
 - Registro de auditoría de publicación de exámenes, preguntas generadas por intento, cambios de agente durante un intento, correcciones manuales de nivel y alta/baja de credenciales (el hecho, nunca el valor).
 
@@ -833,7 +834,7 @@ La web nunca ve ni guarda la clave: la ruta `/conectar/openrouter` toma el `code
 
 ### 9.6 Pendientes
 
-Estado a 2026-09-29, tras la prueba con Google y el chat en Chrome. Por prioridad:
+Estado a 2026-09-30, tras preparar el despliegue en Railway y Vercel. Por prioridad:
 
 | # | Pendiente | Requisito | Detalle |
 | --- | --- | --- | --- |
@@ -846,7 +847,7 @@ Estado a 2026-09-29, tras la prueba con Google y el chat en Chrome. Por priorida
 | 7 | Validar los modelos de respaldo | RNF-11, §5.8 | `gemma-4-31b-it:free` y `nemotron-3-super-120b-a12b:free` se eligieron del listado público y no han pasado la suite de paridad |
 | 8 | Probar el examen generado con el modelo real | RF-04, RF-05 | Calidad de las 6 preguntas, citas de las justificaciones y consumo del cupo gratuito |
 | 9 | Referencias de cada pregunta a `pregunta_referencia` | RF-05 | La justificación cita el material, pero no se guardan las referencias |
-| 10 | Migración `CredencialesByok` generada contra SQLite | Despliegue | Rompe `database update` en PostgreSQL; regenerarla antes del primer despliegue |
+| 10 | Cuentas del despliegue | Despliegue | El código, el CI y el CD están listos y la imagen arranca contra PostgreSQL (`docs/DESPLIEGUE.md`). Las migraciones se regeneraron en una sola `Inicial` para PostgreSQL. Falta crear los proyectos de Railway y Vercel, cargar los tokens en GitHub y añadir la URL de la web al cliente OAuth de Google |
 | 11 | Pantalla para elegir el modelo del tutor | RF-35 | Hoy solo por `PUT /admin/agentes/{id}` |
 | 12 | Tope de mensajes por alumno y clase | RNF-08 | Sin implementar |
 | 13 | Dificultad adaptativa por nivel | RF-23 | Sin implementar |

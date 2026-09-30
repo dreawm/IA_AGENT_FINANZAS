@@ -1,0 +1,17 @@
+# Servicio de la API en Railway.
+#
+# Lo despliega el workflow de CD con `railway up` desde la raíz del repositorio, así que
+# este archivo y el Dockerfile se encuentran sin configurar nada en el panel. El servicio
+# NO se conecta al repositorio de GitHub: habría dos desplegadores compitiendo.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# /salud responde 200 sin tocar nada externo: si falla, es que la API no arrancó.
+healthcheckPath = "/salud"
+healthcheckTimeout = 120
+# Casi siempre es una variable mal puesta: mejor rendirse que reiniciar sin fin.
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TutorPreClase.Application.Abstracciones;
 using TutorPreClase.Domain.Entidades;
@@ -35,6 +35,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> opciones)
 
         // SQLite no sabe comparar DateTimeOffset: en pruebas se guardan como binario.
         if (!esPostgres) ConvertirFechasParaSqlite(b);
+
+        // PostgreSQL solo acepta DateTimeOffset en UTC, y las horas de clase llegan con la
+        // zona de Lima (-05:00): se guardan en UTC sin cambiar el instante.
+        else ConvertirFechasAUtc(b);
 
         b.Entity<Usuario>(e =>
         {
@@ -235,6 +239,21 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> opciones)
     private static void ConvertirFechasParaSqlite(ModelBuilder b)
     {
         var conversor = new DateTimeOffsetToBinaryConverter();
+
+        foreach (var entidad in b.Model.GetEntityTypes())
+        {
+            foreach (var propiedad in entidad.GetProperties())
+            {
+                if (propiedad.ClrType == typeof(DateTimeOffset) || propiedad.ClrType == typeof(DateTimeOffset?))
+                    propiedad.SetValueConverter(conversor);
+            }
+        }
+    }
+
+    private static void ConvertirFechasAUtc(ModelBuilder b)
+    {
+        var conversor = new ValueConverter<DateTimeOffset, DateTimeOffset>(
+            fecha => fecha.ToUniversalTime(), fecha => fecha);
 
         foreach (var entidad in b.Model.GetEntityTypes())
         {

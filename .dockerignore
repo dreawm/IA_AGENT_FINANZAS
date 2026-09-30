@@ -1,0 +1,16 @@
+# La imagen solo necesita src/ y course-content/. Nada de secretos ni bases locales.
+secrets/
+tutor.env
+**/*.db
+**/*.db-*
+**/bin/
+**/obj/
+**/almacen/
+web/
+tests/
+specs/
+.git/
+.github/
+.claude/
+.agents/
+*.log

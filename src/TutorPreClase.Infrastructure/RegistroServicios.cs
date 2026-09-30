@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -59,7 +60,13 @@ public static class RegistroServicios
         servicios.AddSingleton<IExtractorTexto, ExtractorTextoPlano>();
         servicios.AddSingleton<IExtractorTextoFactory, ExtractorTextoFactory>();
 
-        servicios.AddDataProtection();
+        // Las claves cifran las credenciales de los alumnos: en un contenedor van a un
+        // volumen, o cada despliegue las perdería y dejaría ilegibles las guardadas.
+        // El nombre fijo solo va ahí: cambiarlo en local dejaría ilegibles las ya guardadas.
+        var proteccion = servicios.AddDataProtection();
+        if (config["ProteccionDatos:Carpeta"] is { Length: > 0 } carpetaClaves)
+            proteccion.SetApplicationName("TutorPreClase")
+                .PersistKeysToFileSystem(new DirectoryInfo(carpetaClaves));
         servicios.AddSingleton<IValidadorCredencial, ValidadorCredencial>();
         servicios.AddScoped<IBovedaCredenciales, BovedaCredenciales>();
         servicios.AddScoped<IConexionOAuth, ConexionOpenRouter>();

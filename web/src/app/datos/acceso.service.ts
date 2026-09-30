@@ -1,9 +1,10 @@
+import { environment } from '../../environments/environment';
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { Rol, Sesion, UsuarioSesion } from './sesion.service';
 
-const API = '/api/v1';
+const API = `${environment.apiUrl}/v1`;
 
 export interface Proveedores {
   proveedores: { id: string; nombre: string; configurado: boolean }[];

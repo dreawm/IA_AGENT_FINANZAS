@@ -21,6 +21,7 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                     Modelo = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     BaseUrl = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: false),
                     Descripcion = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    UrlConsola = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
                     Habilitado = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
@@ -35,7 +36,8 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     Codigo = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
                     Nombre = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                    Periodo = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false)
+                    Periodo = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    DocenteId = table.Column<Guid>(type: "uuid", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -84,7 +86,8 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                     Email = table.Column<string>(type: "character varying(320)", maxLength: 320, nullable: false),
                     Nombre = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     Rol = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
-                    AgentePreferido = table.Column<string>(type: "text", nullable: true)
+                    AgentePreferido = table.Column<string>(type: "text", nullable: true),
+                    ProfesorId = table.Column<Guid>(type: "uuid", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -100,7 +103,7 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                     Titulo = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: false),
                     Inicio = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     Orden = table.Column<int>(type: "integer", nullable: false),
-                    AmpliacionPermitida = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true)
+                    AmpliacionPermitida = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false)
                 },
                 constraints: table =>
                 {
@@ -109,6 +112,31 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                         name: "FK_clase_curso_CursoId",
                         column: x => x.CursoId,
                         principalTable: "curso",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "credencial_agente",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    UsuarioId = table.Column<Guid>(type: "uuid", nullable: false),
+                    AgenteId = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    ClaveCifrada = table.Column<string>(type: "text", nullable: false),
+                    Ultimos4 = table.Column<string>(type: "character varying(4)", maxLength: 4, nullable: false),
+                    Origen = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false, defaultValue: "Pegada"),
+                    Estado = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    CreadaEn = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    UltimoUsoEn = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_credencial_agente", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_credencial_agente_usuario_UsuarioId",
+                        column: x => x.UsuarioId,
+                        principalTable: "usuario",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -174,7 +202,8 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                     MaxIntentos = table.Column<int>(type: "integer", nullable: false),
                     MinutosLimite = table.Column<int>(type: "integer", nullable: true),
                     ModoFeedback = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
-                    Publicado = table.Column<bool>(type: "boolean", nullable: false)
+                    Publicado = table.Column<bool>(type: "boolean", nullable: false),
+                    PreguntasPorIntento = table.Column<int>(type: "integer", nullable: false, defaultValue: 6)
                 },
                 constraints: table =>
                 {
@@ -236,31 +265,6 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 });
 
             migrationBuilder.CreateTable(
-                name: "pregunta",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    ExamenId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Enunciado = table.Column<string>(type: "text", nullable: false),
-                    Justificacion = table.Column<string>(type: "text", nullable: false),
-                    Tema = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                    Nivel = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: true),
-                    Orden = table.Column<int>(type: "integer", nullable: false),
-                    Origen = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
-                    Aprobada = table.Column<bool>(type: "boolean", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_pregunta", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_pregunta_examen_ExamenId",
-                        column: x => x.ExamenId,
-                        principalTable: "examen",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "conversacion",
                 columns: table => new
                 {
@@ -287,6 +291,66 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                         principalTable: "intento",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "pregunta",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    ExamenId = table.Column<Guid>(type: "uuid", nullable: false),
+                    IntentoId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Enunciado = table.Column<string>(type: "text", nullable: false),
+                    Justificacion = table.Column<string>(type: "text", nullable: false),
+                    Tema = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    Nivel = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: true),
+                    Orden = table.Column<int>(type: "integer", nullable: false),
+                    Origen = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    Aprobada = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_pregunta", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_pregunta_examen_ExamenId",
+                        column: x => x.ExamenId,
+                        principalTable: "examen",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_pregunta_intento_IntentoId",
+                        column: x => x.IntentoId,
+                        principalTable: "intento",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "mensaje_chat",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    ConversacionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    PreguntaId = table.Column<Guid>(type: "uuid", nullable: true),
+                    AgenteId = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    Rol = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    Texto = table.Column<string>(type: "text", nullable: false),
+                    Herramienta = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: true),
+                    Fuentes = table.Column<string>(type: "jsonb", nullable: true),
+                    UsaAmpliacion = table.Column<bool>(type: "boolean", nullable: false),
+                    TokensEntrada = table.Column<int>(type: "integer", nullable: false),
+                    TokensSalida = table.Column<int>(type: "integer", nullable: false),
+                    CreadoEn = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_mensaje_chat", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_mensaje_chat_conversacion_ConversacionId",
+                        column: x => x.ConversacionId,
+                        principalTable: "conversacion",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -363,34 +427,6 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                         onDelete: ReferentialAction.Restrict);
                 });
 
-            migrationBuilder.CreateTable(
-                name: "mensaje_chat",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    ConversacionId = table.Column<Guid>(type: "uuid", nullable: false),
-                    PreguntaId = table.Column<Guid>(type: "uuid", nullable: true),
-                    AgenteId = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
-                    Rol = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
-                    Texto = table.Column<string>(type: "text", nullable: false),
-                    Herramienta = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: true),
-                    Fuentes = table.Column<string>(type: "jsonb", nullable: true),
-                    UsaAmpliacion = table.Column<bool>(type: "boolean", nullable: false),
-                    TokensEntrada = table.Column<int>(type: "integer", nullable: false),
-                    TokensSalida = table.Column<int>(type: "integer", nullable: false),
-                    CreadoEn = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_mensaje_chat", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_mensaje_chat_conversacion_ConversacionId",
-                        column: x => x.ConversacionId,
-                        principalTable: "conversacion",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
             migrationBuilder.CreateIndex(
                 name: "IX_alternativa_PreguntaId",
                 table: "alternativa",
@@ -417,6 +453,12 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 name: "IX_conversacion_IntentoId",
                 table: "conversacion",
                 column: "IntentoId",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_credencial_agente_UsuarioId_AgenteId",
+                table: "credencial_agente",
+                columns: new[] { "UsuarioId", "AgenteId" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
@@ -468,6 +510,11 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 column: "ExamenId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_pregunta_IntentoId",
+                table: "pregunta",
+                column: "IntentoId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_pregunta_referencia_PaginaId",
                 table: "pregunta_referencia",
                 column: "PaginaId");
@@ -500,6 +547,9 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 name: "alternativa");
 
             migrationBuilder.DropTable(
+                name: "credencial_agente");
+
+            migrationBuilder.DropTable(
                 name: "duda_sin_cobertura");
 
             migrationBuilder.DropTable(
@@ -530,10 +580,10 @@ namespace TutorPreClase.Infrastructure.Persistencia.Migraciones
                 name: "pregunta");
 
             migrationBuilder.DropTable(
-                name: "intento");
+                name: "archivo_contenido");
 
             migrationBuilder.DropTable(
-                name: "archivo_contenido");
+                name: "intento");
 
             migrationBuilder.DropTable(
                 name: "examen");

@@ -1,0 +1,227 @@
+name: CD
+
+# El despliegue lo hace este workflow, no las integraciones Git de las plataformas, para
+# que nada llegue a un entorno sin que el CI esté en verde sobre ese commit exacto.
+# `workflow_run` da esa garantía: arranca cuando termina el CI de un push a main/develop,
+# y la condición del primer job descarta toda ejecución que no terminó en verde.
+#
+# Por eso el auto-deploy de las plataformas queda apagado para esas dos ramas:
+#   - Vercel: `git.deploymentEnabled` en web/vercel.json (ya en false).
+#   - Railway: el servicio no se conecta al repositorio; este workflow sube el código
+#     con `railway up`.
+# Ver docs/DESPLIEGUE.md.
+#
+# GitHub solo lanza un workflow `workflow_run` si el archivo existe en la rama por
+# defecto: un cambio a este archivo en develop no surte efecto hasta llegar a main.
+
+run-name: >-
+  ${{ github.event.workflow_run.conclusion == 'success'
+  && github.event.workflow_run.event == 'push'
+  && (github.event.workflow_run.head_branch == 'main' && 'production' || 'development')
+  || 'sin despliegue' }}
+  · ${{ github.event.workflow_run.head_branch }}
+  · ${{ github.event.workflow_run.display_title }}
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main, develop]
+
+# Un despliegue a la vez por rama, y nunca cancelado a medias: una migración aplicada a
+# medias es peor que un despliegue en cola.
+concurrency:
+  group: cd-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  contexto:
+    name: Elegir el entorno
+    # `workflow_run` también salta con CI de pull requests, que nunca deben desplegar.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      entorno: ${{ steps.elegir.outputs.entorno }}
+      destino_vercel: ${{ steps.elegir.outputs.destino_vercel }}
+    steps:
+      - id: elegir
+        # main → production, develop → development. El filtro de ramas del disparador
+        # hace que no haya un tercer caso.
+        run: |
+          if [ "${{ github.event.workflow_run.head_branch }}" = "main" ]; then
+            echo "entorno=production"        >> "$GITHUB_OUTPUT"
+            echo "destino_vercel=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "entorno=development"       >> "$GITHUB_OUTPUT"
+            echo "destino_vercel=preview"    >> "$GITHUB_OUTPUT"
+          fi
+
+  api:
+    name: API → Railway
+    needs: contexto
+    runs-on: ubuntu-latest
+    # Los secretos van por GitHub Environment: el token de producción no llega a un
+    # despliegue de develop.
+    environment: ${{ needs.contexto.outputs.entorno }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `workflow_run` usa por defecto la rama por defecto, no el commit probado.
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # La configuración que falta se detecta antes de trabajar: el CLI informa un token
+      # vacío como inválido y un servicio vacío como `--service ""`.
+      - name: Revisar la configuración de Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+          ENTORNO: ${{ needs.contexto.outputs.entorno }}
+        run: |
+          ok=1
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "::error::Falta RAILWAY_TOKEN en el entorno '$ENTORNO'. Añádelo en Settings -> Environments -> $ENTORNO -> Environment secrets."
+            ok=0
+          fi
+          if [ -z "${RAILWAY_SERVICE:-}" ]; then
+            echo "::error::Falta RAILWAY_SERVICE. Añádelo en Settings -> Secrets and variables -> Actions -> Variables, con el nombre del servicio de la API en Railway."
+            ok=0
+          fi
+          [ "$ok" = 1 ]
+
+      # Fijado: `railway up` ha cambiado sus opciones entre versiones mayores.
+      - name: Instalar el CLI de Railway
+        run: npm install -g @railway/cli@4
+
+      # Llamada de solo lectura que falla donde fallaría `up`, en segundos. No es fatal:
+      # está para explicar un fallo; el veredicto lo da el despliegue.
+      - name: Comprobar que el token llega al proyecto
+        continue-on-error: true
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          ENTORNO: ${{ needs.contexto.outputs.entorno }}
+        run: |
+          if ! railway status; then
+            echo "::error::Railway rechazó RAILWAY_TOKEN del entorno '$ENTORNO'."
+            {
+              echo "Casi siempre es el tipo de token:"
+              echo "  Token de PROYECTO — Railway -> el proyecto -> Settings -> Tokens, creado"
+              echo "                      desde el environment $ENTORNO. Es el que sirve aquí."
+              echo "  Token de CUENTA   — Account Settings -> Tokens. RAILWAY_TOKEN lo rechaza."
+            } >&2
+            exit 1
+          fi
+
+      # `railway up` sube la raíz del repositorio (sin lo que ignora .gitignore): ahí están
+      # railway.toml y el Dockerfile. `--detach` y la espera de abajo en vez de `--ci`,
+      # que marca en rojo también cuando solo pierde el flujo de logs.
+      - name: Lanzar el despliegue
+        run: railway up --service "$RAILWAY_SERVICE" --detach --json --message "$MENSAJE"
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+          MENSAJE: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Esperar a que el despliegue termine
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+        run: |
+          # El JSON del CLI no es un contrato documentado: se busca el primer objeto con
+          # `status` en vez de nombrar una ruta, que es lo que ya falló en ZoomArtists.
+          limite=$(( SECONDS + 900 ))
+          primero=1
+          estado=""
+          while [ "$SECONDS" -lt "$limite" ]; do
+            crudo=$(railway deployment list --service "$RAILWAY_SERVICE" --limit 1 --json 2>/dev/null || echo "")
+            if [ "$primero" = 1 ]; then
+              echo "── primera respuesta de 'railway deployment list --json' ──"
+              printf '%s\n' "$crudo" | head -c 1500
+              echo; echo "──"
+              primero=0
+            fi
+            estado=$(printf '%s' "$crudo" | jq -r '
+              [ .. | objects | select(has("status")) | .status ] | first // ""')
+
+            case "$estado" in
+              SUCCESS)
+                echo "Railway da el despliegue por bueno (SUCCESS)."
+                echo "── log de arranque del contenedor ──"
+                railway logs --service "$RAILWAY_SERVICE" --lines 60 || true
+                exit 0 ;;
+              FAILED|CRASHED|REMOVED)
+                echo "::error::Railway da el despliegue como $estado."
+                railway logs --service "$RAILWAY_SERVICE" --lines 120 || true
+                exit 1 ;;
+              "")
+                echo "Todavía no se lee el estado…" ;;
+              *)
+                echo "…$estado" ;;
+            esac
+            sleep 15
+          done
+
+          echo "::error::El despliegue no terminó en 15 minutos (último estado: ${estado:-ilegible})."
+          railway logs --service "$RAILWAY_SERVICE" --lines 120 || true
+          exit 1
+
+  web:
+    name: Web → Vercel
+    # Después de la API a propósito: si la API falla, la web anterior sigue hablando con
+    # la API anterior en vez de una web nueva contra nada.
+    needs: [contexto, api]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.contexto.outputs.entorno }}
+    # Todo corre desde la raíz del repositorio y así debe seguir: el proyecto de Vercel
+    # tiene Root Directory = web, y el CLI lo añade a su directorio de trabajo, así que un
+    # `working-directory: web` acabaría en web/web.
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Instalar el CLI de Vercel
+        run: npm install -g vercel@48
+
+      - name: Traer la configuración y las variables del proyecto
+        # De aquí sale API_URL: vive en las variables del proyecto de Vercel y llega a
+        # .vercel/.env.<destino>.local, que `vercel build` carga para set-env.mjs.
+        run: |
+          vercel pull --yes --token="$VERCEL_TOKEN" \
+            --environment=${{ needs.contexto.outputs.destino_vercel }} \
+            ${{ needs.contexto.outputs.destino_vercel == 'preview' && '--git-branch=develop' || '' }}
+
+      - name: Compilar
+        run: vercel build --token="$VERCEL_TOKEN" ${{ needs.contexto.outputs.destino_vercel == 'production' && '--prod' || '' }}
+
+      - name: Desplegar
+        id: desplegar
+        # --prebuilt sube lo compilado arriba: lo que se validó es lo que se publica.
+        run: |
+          url=$(vercel deploy --prebuilt --token="$VERCEL_TOKEN" \
+            ${{ needs.contexto.outputs.destino_vercel == 'production' && '--prod' || '' }})
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Publicado en $url"
+
+      - name: Apuntar el alias de desarrollo a este despliegue
+        # Producción hereda sus dominios solo. Un despliegue del CLI queda registrado en
+        # la rama HEAD, no en develop, así que el alias de desarrollo se fija a mano.
+        if: needs.contexto.outputs.destino_vercel == 'preview' && vars.VERCEL_ALIAS != ''
+        env:
+          ALIAS: ${{ vars.VERCEL_ALIAS }}
+          URL_DESPLIEGUE: ${{ steps.desplegar.outputs.url }}
+        run: vercel alias set "$URL_DESPLIEGUE" "$ALIAS" --token="$VERCEL_TOKEN"

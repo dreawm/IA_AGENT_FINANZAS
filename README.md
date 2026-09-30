@@ -113,6 +113,14 @@ ampliación, el rechazo de herramientas fuera de modo, el examen completo por ch
 manejo de credenciales (cifrado, aislamiento entre alumnos, invalidación y reconexión) y
 la API real (roles, autorización por recurso y streaming SSE).
 
+## Despliegue
+
+La API va en Docker a **Railway** (con PostgreSQL) y la web a **Vercel**. Despliega GitHub
+Actions: el CI prueba la API, compila la web como en Vercel y construye la imagen; el CD
+arranca solo si el CI terminó en verde sobre un push a `main` y sube primero la API y
+luego la web. La guía para montar las cuentas está en
+[`docs/DESPLIEGUE.md`](docs/DESPLIEGUE.md).
+
 ## Diferencias con el SDD
 
 - La cola de extracción es en proceso (`Channel`) en lugar de RabbitMQ + MassTransit.

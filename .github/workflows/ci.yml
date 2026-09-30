@@ -1,10 +1,15 @@
 name: CI
 
+# No despliega nada: es la puerta que dice si el commit está sano. El CD (cd.yml)
+# solo arranca cuando este workflow termina en verde sobre un push a main o develop.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
@@ -56,5 +61,28 @@ jobs:
       - name: Instalar
         run: npm ci
 
-      - name: Compilar
-        run: npm run build
+      # Compila igual que Vercel: si falla set-env.mjs o se pasa un presupuesto de
+      # tamaño, se ve aquí y no en un despliegue.
+      - name: Compilar como en producción
+        env:
+          API_URL: https://api.example.com/api
+        run: npm run build:deploy
+
+  imagen:
+    name: Imagen Docker de la API
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # No se publica: Railway construye la suya con este Dockerfile. Existe para que un
+      # error del Dockerfile aparezca en el commit que lo causó y no en un despliegue.
+      - name: Construir la imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
